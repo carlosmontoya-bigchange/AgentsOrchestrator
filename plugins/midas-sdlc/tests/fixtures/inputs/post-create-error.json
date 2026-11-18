@@ -1,0 +1,41 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "fixtures/transcripts/typed-then-tools.jsonl",
+  "cwd": "C:\\dev\\Projects\\BigChange",
+  "scratchpad_dir": "C:\\Users\\fixture\\AppData\\Local\\Temp\\claude\\fixture\\scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000002",
+  "permission_mode": "default",
+  "effort": "max",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__azure-devops__wit_work_item_write",
+  "tool_input": {
+    "action": "create",
+    "project": "BigChange",
+    "workItemType": "Bug",
+    "fields": [
+      {
+        "name": "System.Title",
+        "value": "Fixture"
+      },
+      {
+        "name": "System.AreaPath",
+        "value": "BigChange\\Finance\\Midas"
+      }
+    ]
+  },
+  "tool_response": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Error creating work item: the area path is not valid."
+      }
+    ],
+    "isError": true
+  },
+  "tool_use_id": "toolu_fixture03",
+  "duration_ms": 840,
+  "mcp_server": {
+    "name": "azure-devops",
+    "source": "user"
+  }
+}

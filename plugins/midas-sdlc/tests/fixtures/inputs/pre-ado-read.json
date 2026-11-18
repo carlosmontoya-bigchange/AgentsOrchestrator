@@ -1,0 +1,24 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "fixtures/transcripts/typed-then-tools.jsonl",
+  "cwd": "C:\\dev\\Projects\\BigChange",
+  "scratchpad_dir": "C:\\Users\\fixture\\AppData\\Local\\Temp\\claude\\fixture\\scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000002",
+  "permission_mode": "default",
+  "effort": "max",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__azure-devops__wit_work_item",
+  "tool_input": {
+    "action": "get",
+    "id": 999999001,
+    "fields": [
+      "System.Id",
+      "System.State"
+    ]
+  },
+  "tool_use_id": "toolu_fixture02",
+  "mcp_server": {
+    "name": "azure-devops",
+    "source": "user"
+  }
+}

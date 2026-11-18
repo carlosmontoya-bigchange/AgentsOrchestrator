@@ -1,0 +1,2 @@
+* text=auto eol=lf
+plugins/midas-sdlc/tests/fixtures/** -text

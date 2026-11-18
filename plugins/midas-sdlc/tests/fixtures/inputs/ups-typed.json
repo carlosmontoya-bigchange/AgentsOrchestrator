@@ -1,0 +1,11 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "fixtures/transcripts/typed-then-tools.jsonl",
+  "cwd": "C:\\dev\\Projects\\BigChange",
+  "scratchpad_dir": "C:\\Users\\fixture\\AppData\\Local\\Temp\\claude\\fixture\\scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000002",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Accept G8 999999001",
+  "session_title": "Fixture session"
+}
