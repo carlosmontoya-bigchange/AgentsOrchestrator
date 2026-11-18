@@ -1,0 +1,7 @@
+{
+  "name": "midas-harness",
+  "owner": { "name": "Juan Betancur" },
+  "plugins": [
+    { "name": "midas-sdlc", "source": "./plugins/midas-sdlc", "description": "Gated Midas SDLC stages, specialists and the outward-action guard" }
+  ]
+}

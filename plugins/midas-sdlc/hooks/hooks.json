@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/record.js"], "timeout": 10, "onFailure": "continue" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "^mcp__azure-devops__(repo_pull_request_write|wit_work_item_write|testplan_test_case_write)$",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/record.js"], "timeout": 10, "onFailure": "continue" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "^mcp__(plugin_agentic-midas_)?azure-devops__.*$",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/guard.js"], "timeout": 10, "onFailure": "block" } ] },
+      { "matcher": "^mcp__(claude-in-chrome|Claude_Browser)__.*$",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/guard.js"], "timeout": 10, "onFailure": "block" } ] },
+      { "matcher": "^(SendMessage|CronCreate|RemoteTrigger|PublishPlugin|mcp__ccd_session__(start_session|hand_off_to_session|move_to_cloud)|mcp__ccd_session_mgmt__(send_message|set_remote_control|set_session_permission_mode)|mcp__ccd_settings__set_setting|mcp__scheduled-tasks__(create|update)_scheduled_task)$",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/guard.js"], "timeout": 10, "onFailure": "block" } ] }
+    ]
+  }
+}
