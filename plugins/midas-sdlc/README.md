@@ -17,6 +17,9 @@ At user scope only. In the Claude Code desktop app:
 
 From here, every Azure DevOps write in every session needs an answer.
 
+In any session, type `/midas-sdlc:guide` for this guide, or `/midas-sdlc:guide <question>`, for example
+`/midas-sdlc:guide which answer lets Claude comment on 362525?`. Claude also uses it when you ask about a block.
+
 ## Update
 
 Claude Code installs a copy of the plugin and keeps it until the plugin's `version` changes. To get a new version,
