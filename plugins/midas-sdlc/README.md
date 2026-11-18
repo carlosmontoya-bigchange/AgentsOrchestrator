@@ -11,30 +11,30 @@ This is a snapshot of a developer's local harness, still being built. The guard'
 
 At user scope only. In the Claude Code desktop app:
 
-1. `/plugin marketplace add <path to this repo>`
-2. `/plugin install midas-sdlc@midas-harness`, choosing user scope
+1. `/plugin marketplace add carlosmontoya-bigchange/AgentsOrchestrator` (a private repo: your git must be able to clone it). A local clone works too: `/plugin marketplace add <path to the clone>`
+2. `/plugin install midas-sdlc@agents-orchestrator`, choosing user scope
 3. `/reload-plugins`
 
 From here, every Azure DevOps write in every session needs an answer.
 
 ## Switch off
 
-`/plugin disable midas-sdlc@midas-harness`. `/plugin enable midas-sdlc@midas-harness` turns it back on.
+`/plugin disable midas-sdlc@agents-orchestrator`. `/plugin enable midas-sdlc@agents-orchestrator` turns it back on.
 
 ## Recovery
 
 If the guard blocks too much, none of these steps goes through a hooked tool:
 
-1. `/plugin disable midas-sdlc@midas-harness`.
+1. `/plugin disable midas-sdlc@agents-orchestrator`.
 2. In your own PowerShell, not Claude's:
-   `& (Get-ChildItem $env:LOCALAPPDATA/Claude-Data/*/claude-code/*/*/claude.exe | Sort-Object LastWriteTime | Select-Object -Last 1).FullName plugin disable midas-sdlc@midas-harness`
-3. Set `"midas-sdlc@midas-harness": false` under `enabledPlugins` in `~/.claude/settings.json`, then restart.
+   `& (Get-ChildItem $env:LOCALAPPDATA/Claude-Data/*/claude-code/*/*/claude.exe | Sort-Object LastWriteTime | Select-Object -Last 1).FullName plugin disable midas-sdlc@agents-orchestrator`
+3. Set `"midas-sdlc@agents-orchestrator": false` under `enabledPlugins` in `~/.claude/settings.json`, then restart.
 
 Never uninstall it: uninstalling deletes the gate ledger unless `--keep-data` is passed. Disable it instead.
 
 ## Gate ledger
 
-The ledger is `ledger.jsonl` in the plugin data folder (`~/.claude/plugins/data/midas-sdlc-midas-harness/`).
+The ledger is `ledger.jsonl` in the plugin data folder (`~/.claude/plugins/data/midas-sdlc-agents-orchestrator/`).
 Claude never edits it, and the hooks only append. To remove a bad line, back the file up, delete the line in your
 own editor, keep LF endings and the final newline, then check every line parses:
 
