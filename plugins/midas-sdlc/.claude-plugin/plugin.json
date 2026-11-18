@@ -1,7 +1,7 @@
 {
   "name": "midas-sdlc",
   "displayName": "Midas SDLC",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Gated Midas SDLC. Blocks outward actions until the developer answers in chat: Azure DevOps writes, Azure DevOps pages in the browser, and session, schedule and app-setting tools. Answers are typed messages such as 'Accept G8 362525' or 'Approve: comment 362525', and each one is recorded in a gate ledger. Full guide: the homepage link.",
   "author": { "name": "Juan Betancur" },
   "homepage": "https://github.com/carlosmontoya-bigchange/AgentsOrchestrator/blob/main/plugins/midas-sdlc/README.md",
