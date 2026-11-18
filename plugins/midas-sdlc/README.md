@@ -17,6 +17,27 @@ At user scope only. In the Claude Code desktop app:
 
 From here, every Azure DevOps write in every session needs an answer.
 
+In any session, type `/midas-sdlc:guide` for this guide, or `/midas-sdlc:guide <question>`, for example
+`/midas-sdlc:guide which answer lets Claude comment on 362525?`. Claude also uses it when you ask about a block.
+
+## Update
+
+Claude Code installs a copy of the plugin and keeps it until the plugin's `version` changes. To get a new version,
+in your own PowerShell (not Claude's):
+
+```powershell
+$c = (Get-ChildItem $env:LOCALAPPDATA/Claude-Data/*/claude-code/*/*/claude.exe | Sort-Object LastWriteTime | Select-Object -Last 1).FullName
+& $c plugin marketplace update agents-orchestrator
+& $c plugin update midas-sdlc@agents-orchestrator
+```
+
+Then run `/reload-plugins` in each open session in the desktop app, or start a new session. If the update says
+`already at the latest version`, no new version has been published yet.
+
+To get updates without asking, open `/plugin`, go to **Marketplaces**, choose `agents-orchestrator` and turn on
+**Enable auto-update**. Claude Code then checks shortly after each session starts and tells you to run
+`/reload-plugins`.
+
 ## What it blocks
 
 Reads always pass. Until the developer answers, the guard denies:
