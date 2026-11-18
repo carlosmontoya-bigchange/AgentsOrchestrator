@@ -3,6 +3,6 @@
   "owner": { "name": "Juan Betancur" },
   "description": "Claude Code plugins for the Midas team's agent workflows",
   "plugins": [
-    { "name": "midas-sdlc", "source": "./plugins/midas-sdlc", "description": "Gated Midas SDLC stages, specialists and the outward-action guard" }
+    { "name": "midas-sdlc", "source": "./plugins/midas-sdlc", "displayName": "Midas SDLC", "description": "Gated Midas SDLC: blocks Azure DevOps writes and other outward actions until the developer answers in chat, and records each answer in a gate ledger", "category": "development" }
   ]
 }
