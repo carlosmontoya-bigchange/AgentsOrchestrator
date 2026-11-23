@@ -3,6 +3,7 @@
 ## Plugins
 
 - [midas-sdlc](plugins/midas-sdlc/README.md): gated Midas SDLC stages and the outward-action guard for Claude Code.
+- [pod-harness](plugins/pod-harness/README.md): guided set-up of a pod's way of working with Claude Code, with a base file a pod lead can share.
 
 ## Use it as a plugin marketplace
 
