@@ -425,6 +425,6 @@ FodyWeavers.xsd
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
 
-# midas-sdlc
+# Local work folders
 .claude/worktrees/
 .superpowers/
