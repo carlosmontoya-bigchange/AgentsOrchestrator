@@ -54,6 +54,7 @@ test('setup learns its mode from the CLI, shows commands before running them, an
   assert.match(text, /Show the exact build and test command/); // a base file is someone else's: never run its commands unseen
   assert.match(text, /`duplicates`/);
   assert.match(text, /forward slashes/);
+  assert.match(text, /backslash[^\n]*`@<file>`/); // Git Bash on Windows mangles a backslash in command-line JSON (live check, 2026-11-23)
 });
 
 test('the README documents the three commands and where the files live', () => {

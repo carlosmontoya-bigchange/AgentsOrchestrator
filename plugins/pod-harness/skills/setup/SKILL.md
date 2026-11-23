@@ -16,6 +16,7 @@ You are guiding a developer through setting up their pod's configuration. The co
 - Never ask for something a command already told you.
 - If a command prints `{"error": ...}`, tell the developer what it says in plain words, then fix the input or ask. An error that names a `heading` is about that heading of the file.
 - Pass JSON to `set` in single quotes with the Bash tool. If only PowerShell is available, write the JSON to a file in your scratch folder and pass `@<file>` in its place.
+- If a value contains a backslash, such as an Azure DevOps area path (`BigChange\Finance\Midas`), always write the JSON to a file and pass `@<file>`: the shell changes backslashes on a command line. In the file, write each backslash twice, as JSON needs.
 - If the developer gives a home folder for testing, start every command with `POD_HARNESS_HOME=<folder>`.
 - Keep your own messages short. Say which step you are on ("Step 3 of 12: repos").
 
