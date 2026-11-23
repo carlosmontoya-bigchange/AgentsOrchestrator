@@ -1,0 +1,11 @@
+{
+  "name": "pod-harness",
+  "displayName": "Pod Harness",
+  "version": "0.1.0",
+  "description": "Sets up a pod's way of working with Claude Code. /pod-harness:setup is a guided set-up that writes the pod's configuration on your machine, /pod-harness:doctor checks it, and /pod-harness:export writes a base file a pod lead can share with the team.",
+  "author": { "name": "Juan Betancur" },
+  "homepage": "https://github.com/carlosmontoya-bigchange/AgentsOrchestrator/blob/main/plugins/pod-harness/README.md",
+  "repository": "https://github.com/carlosmontoya-bigchange/AgentsOrchestrator",
+  "license": "MIT",
+  "keywords": ["pod", "sdlc", "setup", "configuration", "skills"]
+}
