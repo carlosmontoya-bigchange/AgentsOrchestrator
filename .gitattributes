@@ -1,3 +1,2 @@
 * text=auto eol=lf
-plugins/midas-sdlc/tests/fixtures/** -text
 plugins/pod-harness/tests/fixtures/** -text
