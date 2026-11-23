@@ -7,7 +7,11 @@ const SUPPORTED_FORMAT = 1;
 const TRACKERS = ['azure-devops', 'github', 'none'];
 const MODELS = ['haiku', 'sonnet', 'opus'];
 const STAGE_KEYS = ['design', 'plan', 'test', 'review', 'deliver'];
-const APPROVAL_KEYS = ['work_order', 'design', 'plan', 'review_result', 'outward_action', 'destructive_local', 'policy_exception', 'budget_reached', 'task_grew'];
+// The stage checkpoints a pod can choose to use. Actions are left to Claude's own permission prompts.
+const APPROVAL_KEYS = ['work_order', 'design', 'plan', 'review_result'];
+const RULE_LISTS = ['never', 'always_ask'];
+// A Claude Code permission rule: Tool or Tool(pattern), for example Bash(git push *) or mcp__server__tool.
+const PERMISSION_RULE = /^[A-Za-z_][\w*-]*(\(.+\))?$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const filled = (v) => typeof v === 'string' && v.trim() !== '';
@@ -61,6 +65,7 @@ function sanitize(config) {
   if (out.delivery) {
     fix(out.delivery, 'webhooks', isIdArray, [], 'delivery.webhooks', 'delivery', 'The webhooks must be a list of records, each with an "id" and an "env".');
     fix(out.delivery, 'remotes', stringList, [], 'delivery.remotes', 'delivery', 'The allowed remotes must be a list of names.');
+    for (const key of RULE_LISTS) fix(out.delivery, key, stringList, [], `delivery.${key}`, 'delivery', `"${key}" must be a list of permission rules.`);
   }
   return { config: out, problems };
 }
@@ -119,6 +124,11 @@ function validateConfig(config, opts = {}) {
     if (!ENV_NAME.test(hook.env || '')) add(`delivery.webhooks[${hook.id}].env`, 'delivery', 'A webhook holds the name of the environment variable that has its URL.');
   }
   if (hasUrl(delivery.webhooks)) add('delivery.webhooks', 'delivery', WEBHOOK_URL);
+  for (const key of RULE_LISTS) {
+    for (const rule of stringList(delivery[key]) ? delivery[key] : []) {
+      if (!PERMISSION_RULE.test(rule)) add(`delivery.${key}`, 'delivery', `"${rule}" is not a permission rule. Write it as Tool or Tool(pattern), for example Bash(git push --force *).`);
+    }
+  }
 
   const teams = config.teams || {};
   for (const [agent, model] of Object.entries(teams.models || {})) {

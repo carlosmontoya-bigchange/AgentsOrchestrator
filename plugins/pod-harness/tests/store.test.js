@@ -97,13 +97,16 @@ test('writeLayerText leaves no temp file, and a failed write cleans up and leave
   assert.equal(fs.readFileSync(path.join(dir, 'personal.md'), 'utf8'), personalBefore);
 });
 
-test('the shipped defaults parse and hold all nine approvals as true', () => {
+test('the shipped defaults parse and hold the four stage checkpoints as true', () => {
   const d = readDefaults(pluginRoot);
   assert.equal(d.meta.layer, 'defaults');
-  assert.equal(Object.keys(d.sections.Approvals).length, 9);
+  assert.equal(Object.keys(d.sections.Approvals).length, 4);
   assert.ok(Object.values(d.sections.Approvals).every((v) => v === true));
   assert.equal(d.sections.Trivial.max_lines, 50);
   assert.equal(d.sections.Policies.length, 3);
+  // Outward actions are left to Claude's own permission prompts, so no org policy asks for them.
+  assert.ok(d.sections.Policies.every((p) => p.check === 'review'));
+  assert.deepEqual([d.sections.Delivery.never, d.sections.Delivery.always_ask], [[], []]);
   assert.equal(d.sections.Pod, undefined);
 });
 

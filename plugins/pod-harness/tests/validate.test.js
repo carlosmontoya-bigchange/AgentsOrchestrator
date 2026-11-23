@@ -5,7 +5,7 @@ const { pluginRoot, fixture } = require('./helpers');
 const { parseConfigFile } = require('../scripts/lib/configfile.js');
 const { resolveConfig } = require('../scripts/lib/resolve.js');
 const { readDefaults } = require('../scripts/lib/store.js');
-const { commandFor, validateConfig, validateBase, sanitize, compareVersions, checkReadable } = require('../scripts/lib/validate.js');
+const { APPROVAL_KEYS, commandFor, validateConfig, validateBase, sanitize, compareVersions, checkReadable } = require('../scripts/lib/validate.js');
 
 const APP = 'dev.azure.com/org/proj/_git/app';
 const exists = () => true; // the example paths are not on this machine
@@ -100,6 +100,26 @@ test('an unknown approval value and a bad policy are errors', () => {
     ['policies[p2].statement', 'error', 'policies'],
     ['approvals.plan', 'error', 'approvals'],
   ]);
+});
+
+test('the configuration holds the four stage checkpoints and no approval for an action', () => {
+  // Actions use Claude's own permission prompts, and the three exceptions always exist (design section 10).
+  assert.deepEqual(APPROVAL_KEYS, ['work_order', 'design', 'plan', 'review_result']);
+  assert.deepEqual(Object.keys(readDefaults(pluginRoot).sections.Approvals), APPROVAL_KEYS);
+});
+
+test('the pod\'s "never" and "always ask" rules are lists of Claude Code permission rules', () => {
+  const rules = { never: ['Bash(git push --force *)', 'mcp__azure-devops__pipelines_run'], always_ask: ['Bash(git push *)', 'mcp__azure-devops__*'] };
+  assert.deepEqual(validateConfig(good({ Delivery: rules }), { platform: 'win32', exists }), []);
+  assert.deepEqual(validateConfig(good(), { platform: 'win32', exists }), []); // the defaults hold two empty lists
+
+  const bad = validateConfig(good({ Delivery: { never: ['git push --force', ''], always_ask: ['Bash('] } }), { platform: 'win32', exists });
+  assert.deepEqual(brief(bad), [['delivery.never', 'error', 'delivery'], ['delivery.never', 'error', 'delivery'], ['delivery.always_ask', 'error', 'delivery']]);
+  assert.match(bad[0].message, /"git push --force"/);
+
+  const { config, problems } = sanitize({ delivery: { never: 'Bash(rm:*)', always_ask: [7] } });
+  assert.deepEqual([config.delivery.never, config.delivery.always_ask], [[], []]);
+  assert.deepEqual(brief(problems), [['delivery.never', 'error', 'delivery'], ['delivery.always_ask', 'error', 'delivery']]);
 });
 
 test('wrong numbers, models, stages and actor are errors with their step', () => {

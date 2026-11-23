@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Guided set-up for the pod harness. Use when someone wants to set up or change how their pod works with Claude Code: repos and their build and test commands, stages, team limits, policies, approvals, or who performs outward actions. Also use for "/pod-harness:setup <part>" to change one part.
+description: Guided set-up for the pod harness. Use when someone wants to set up or change how their pod works with Claude Code: repos and their build and test commands, stages, team limits, policies, stage checkpoints, or who performs outward actions. Also use for "/pod-harness:setup <part>" to change one part.
 ---
 
 # Pod harness set-up
@@ -119,7 +119,7 @@ A failed check does not stop set-up. Say what will not work until it is fixed.
 
 Run `show`. Show the exact build and test command for each repo that has a path, in a table, before anything runs. In member mode, say plainly that these commands come from the pod lead's base file and will run on this machine. Never run a command the developer has not seen.
 
-Then tell the developer this runs each repo's real build and tests once and may take minutes. Ask whether to run them now (proposed: yes). On a no, skip to step 8: nothing is proven and no permission rule is offered.
+Then tell the developer this runs each repo's real build and tests once and may take minutes. Ask whether to run them now (proposed: yes). On a no, nothing is proven: go to step 7, which then offers only the pod's rules.
 
 For each repo that has a path, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" prove <id>` and show `build` and `test`.
 - `missing_env`: name the variables that are not set. Never ask for their values. The developer sets them and you run `prove` again.
@@ -129,7 +129,10 @@ For each repo that has a path, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" 
 
 ### 7. Permissions
 
-Offer to add allow rules for the build and test commands that passed in step 6 to the developer's Claude Code settings, so agents are not stopped by a permission prompt on every run (proposed: yes). List the exact commands the rules would allow. Only on a yes: use the `update-config` skill if this session has it. Otherwise show the rules for the developer to add by hand. Add nothing else.
+This step offers rules for the developer's own Claude Code settings. Write a rule only on a yes: use the `update-config` skill if this session has it, otherwise show the rules for the developer to add by hand. Add nothing else.
+
+- **Allow rules.** Offer to allow the build and test commands that passed in step 6, so agents are not stopped by a permission prompt on every run (proposed: yes). List the exact commands the rules would allow. If nothing was proven, offer none.
+- **The pod's rules.** Run `show` and read `delivery.never` and `delivery.always_ask`. If both are empty, say nothing about them. Otherwise list them and offer to add them (proposed: yes): `delivery.never` as deny rules, `delivery.always_ask` as ask rules. Before you write one, say that both hold in every permission mode, Bypass permissions included: a "never" rule blocks the action, and an "always ask" rule shows Claude's own prompt.
 
 ### 8. Trivial paths
 
@@ -142,7 +145,7 @@ Explain in one line: a policy is a rule the pod works by, stored as one line plu
 Author mode: ask, one at a time, for the link and a one-line statement for each of these, skipping any the pod does not have: Definition of Done, Definition of Ready, branching, review rules, database rules. Then ask whether there are others.
 
 For each, ask how it is upheld (proposed: `review`):
-- `approval`: the agent asks the developer before the action.
+- `approval`: the main session asks the developer before the action, when their permission mode calls for a question (step 10).
 - `review`: the agent doing the work is told the policy, and the Reviewer checks it.
 
 Also ask where it applies: a stage (`design`, `plan`, `build`, `test`, `review`, `deliver`), an agent, or `all`.
@@ -155,31 +158,32 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" set <layer> Policies '[{"id":"pod-do
 
 Give each policy a short id starting with `pod-`. To switch a policy off for one developer: `set personal Policies '[{"id":"<id>","off":true}]'`.
 
-### 10. Approvals
+### 10. Checkpoints
 
-Explain: an approval is a question the harness asks before it goes ahead. Any of them can be switched off, and the stages still run in the same order. An action taken without asking is written to the task's log.
+Explain, in a few lines. Name the modes as the developer's app shows them.
+- The harness has no approval switch of its own and never asks anyone to type an approval phrase. How much it asks follows the permission mode the developer has picked in Claude.
+- A push, a PR, a tracker write and the like are covered by Claude's own permission prompts, exactly as outside the harness.
+- A checkpoint is a question with buttons at the end of a stage. In Manual and Accept edits every checkpoint is asked. In Auto one is asked only when there is something to decide. In Plan mode Claude's own plan approval takes its place. Under Bypass permissions nothing is asked, and each skipped checkpoint is logged.
+- The stages run in the same order in every mode.
 
-Ask with the question dialog which approvals are on:
-- **All on** (proposed): every key `true`.
-- **Outward actions only**: `outward_action` is `true`, the other eight are `false`.
-- **All off**: every key `false`.
+**Author mode.** Ask with the question dialog which stage checkpoints the pod uses:
+- **All four** (proposed): every key `true`.
+- **Design and plan only**: `design` and `plan` are `true`, the other two are `false`.
+- **None**: every key `false`.
 - **Choose one by one**: ask about each.
 
-The nine keys and what each asks before:
-
-| Key | Asks |
+| Key | Asked |
 | --- | --- |
 | `work_order` | after the task is sized and routed |
 | `design` | after the design |
 | `plan` | after the build plan |
 | `review_result` | after the review |
-| `outward_action` | before a push, PR, tracker write, pipeline run, message or webhook call |
-| `destructive_local` | before deleting files or branches, or discarding uncommitted work |
-| `policy_exception` | when an agent cannot meet a policy and proposes to go ahead anyway |
-| `budget_reached` | when a stage has used its budget |
-| `task_grew` | when a task turns out bigger than first judged |
 
-Store all nine: `set <layer> Approvals '{"work_order":true,"design":true,"plan":true,"review_result":true,"outward_action":true,"destructive_local":true,"policy_exception":true,"budget_reached":true,"task_grew":true}'`.
+Store all four: `set base Approvals '{"work_order":true,"design":true,"plan":true,"review_result":true}'`.
+
+Say that three more checkpoints always exist and are not a setting: a task that grew, a stage that used its budget, and a policy an agent cannot meet.
+
+**Member mode.** Ask nothing. Show which checkpoints the pod uses (`approvals` in `show`) and say that the permission mode picker in Claude decides how much is asked. Only when the developer ran `/pod-harness:setup approvals` themself and wants to differ from the pod, store their choice in `personal`.
 
 ### 11. Delivery
 
@@ -187,15 +191,18 @@ Ask, one at a time:
 - Who performs outward actions such as a push or a PR: the main session (`main`, proposed) or the Delivery Specialist agent (`agent`).
 - Where manual test cases go (for example a test plan in the tracker, or "none").
 - Whether the pod posts to a webhook. If yes, ask for a short name and the **name of the environment variable** that holds its URL. Never the URL.
+- Author mode only: whether the pod has outward actions that must never happen, or must always be confirmed, whatever permission mode a developer uses (proposed: none). Give two examples: never a force push; always confirm a pipeline run. Write each as a Claude Code permission rule, `Tool` or `Tool(pattern)`, such as `Bash(git push --force *)`. A rule matches the command as written, so `git push -f` needs its own rule. Store the lists as `never` and `always_ask`.
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" set <layer> Delivery '{"actor":"main","manual_tests":"<where>","webhooks":[{"id":"teams","env":"TEAMS_WEBHOOK_URL"}]}'
+node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" set <layer> Delivery '{"actor":"main","manual_tests":"<where>","webhooks":[{"id":"teams","env":"TEAMS_WEBHOOK_URL"}],"never":["Bash(git push --force *)"],"always_ask":[]}'
 ```
+
+The harness does not enforce these two lists. They become rules in each developer's own Claude Code settings, offered in step 7. If the developer just gave any, offer them for their own settings now, as step 7 describes.
 
 ### 12. Summary
 
 Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" show` and `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" doctor`. Show:
-- a short table: pod, tracker, each repo with its trunk and proof, stages that run, approvals that are on, who delivers;
+- a short table: pod, tracker, each repo with its trunk and proof, stages that run, the stage checkpoints the pod uses, who delivers, the pod's "never" and "always ask" rules;
 - every entry in `problems` with level `error`, each with the command that fixes it: `/pod-harness:setup <step>`;
 - entries with level `info` in one line each (for example, a repo that is not cloned);
 - in member mode, `differs`: where this developer's settings differ from the pod base.

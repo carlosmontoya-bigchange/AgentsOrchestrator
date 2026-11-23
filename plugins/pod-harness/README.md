@@ -1,6 +1,6 @@
 # pod-harness
 
-A Claude Code plugin that sets up how a pod works with Claude Code. A guided set-up collects the pod's repos, build and test commands, policies and approvals, and stores them on your machine. A pod lead can export that set-up as one file for the team.
+A Claude Code plugin that sets up how a pod works with Claude Code. A guided set-up collects the pod's repos, build and test commands, policies and stage checkpoints, and stores them on your machine. A pod lead can export that set-up as one file for the team.
 
 This is phase 1: set-up only. The stages and agents that use the configuration come in later versions.
 
@@ -22,6 +22,17 @@ It needs Node 20 or later and git on the PATH.
 | `/pod-harness:setup <part>` | Changes one part: `pod`, `repo <path>`, `teams`, `trivial`, `policies`, `approvals`, `delivery`. |
 | `/pod-harness:doctor` | Checks the set-up, says what is missing and how to fix it, and shows where you differ from the pod base. |
 | `/pod-harness:export` | Pod leads: writes the pod base to one markdown file to share with the team. |
+
+## How much the harness asks
+
+The harness has no approval switch of its own, and it never asks you to type an approval phrase. It follows the permission mode you pick in Claude.
+
+- A push, a PR, a tracker write and the like use Claude's own permission prompts, exactly as outside the harness.
+- A stage checkpoint is a question with buttons at the end of a stage. The pod chooses which of the four it uses: work order, design, plan and review result (`Approvals`).
+- Manual and Accept edits: every checkpoint is asked. Auto: only when there is something to decide. Plan: Claude's own plan approval. Bypass permissions: nothing is asked, and it is logged.
+- A pod that needs a hard rule lists it under `Delivery` as `never` or `always_ask`, in Claude Code's permission rule syntax. The set-up offers to add those rules to your own Claude Code settings, where they hold in every mode.
+
+The stages and checkpoints themselves arrive with phase 2. Phase 1 only stores these choices.
 
 ## Where the files live
 

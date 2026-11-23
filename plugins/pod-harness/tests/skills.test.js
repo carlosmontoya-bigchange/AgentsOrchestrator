@@ -35,9 +35,26 @@ test('setup names its twelve steps in order and every part it can re-run', () =>
   }
 });
 
-test('setup names every approval scenario the configuration holds', () => {
+test('setup names the four stage checkpoints and none of the retired approvals', () => {
   const text = read('skills/setup/SKILL.md');
   for (const key of APPROVAL_KEYS) assert.ok(text.includes(key), `no ${key}`);
+  for (const retired of ['outward_action', 'destructive_local', 'policy_exception', 'budget_reached', 'task_grew']) {
+    assert.ok(!text.includes(retired), `still names ${retired}`);
+  }
+});
+
+test('setup leaves how much is asked to the permission mode and offers the pod\'s rules', () => {
+  const text = read('skills/setup/SKILL.md');
+  const step = (n) => text.slice(text.indexOf(`### ${n}. `), text.indexOf(`### ${n + 1}. `));
+  assert.match(step(10), /permission mode/); // the developer's choice in Claude decides, not a switch of the harness
+  assert.match(step(10), /Bypass permissions/);
+  assert.match(step(10), /Member mode[^\n]*(nothing|no question)/i);
+  assert.match(step(7), /`delivery\.never`/);
+  assert.match(step(7), /`delivery\.always_ask`/);
+  assert.match(step(7), /every permission mode/); // said before a rule is written
+  assert.match(step(11), /"never":/);
+  assert.match(step(11), /"always_ask":/);
+  assert.doesNotMatch(text, /type (the word|"|`)?(Accept|Approve)/i); // never a typed approval phrase
 });
 
 test('no skill tells Claude to write a configuration file directly, and each forbids secrets', () => {
@@ -61,4 +78,5 @@ test('the README documents the three commands and where the files live', () => {
   const text = read('README.md');
   for (const s of skills) assert.ok(text.includes(`/pod-harness:${s}`));
   assert.ok(text.includes('~/.pod-harness'));
+  assert.match(text, /permission mode/); // how much the harness asks is explained where people read first
 });

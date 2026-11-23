@@ -78,7 +78,7 @@ The numbers under Teams and Budget are provisional until the first dry runs.
 [
   { "id": "org-no-secrets", "statement": "No secret in a prompt, a file or a report.", "applies_to": "all", "check": "review" },
   { "id": "org-no-customer-data", "statement": "No customer data on disk or in a report.", "applies_to": "all", "check": "review" },
-  { "id": "org-outward-approval", "statement": "An outward action needs an approval request.", "applies_to": "deliver", "check": "approval" }
+  { "id": "org-outward-in-deliver", "statement": "Outward actions happen only in the Deliver stage.", "applies_to": "all", "check": "review" }
 ]
 ```
 
@@ -95,19 +95,14 @@ The numbers under Teams and Budget are provisional until the first dry runs.
   "work_order": true,
   "design": true,
   "plan": true,
-  "review_result": true,
-  "outward_action": true,
-  "destructive_local": true,
-  "policy_exception": true,
-  "budget_reached": true,
-  "task_grew": true
+  "review_result": true
 }
 ```
 
 # Delivery
 
 ```json
-{ "actor": "main", "remotes": [], "webhooks": [], "manual_tests": "" }
+{ "actor": "main", "remotes": [], "webhooks": [], "manual_tests": "", "never": [], "always_ask": [] }
 ```
 
 # Budget
