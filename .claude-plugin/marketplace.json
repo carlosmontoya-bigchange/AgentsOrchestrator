@@ -1,7 +1,7 @@
 {
   "name": "agents-orchestrator",
   "owner": { "name": "Juan Betancur" },
-  "description": "Claude Code plugins for the Midas team's agent workflows",
+  "description": "Claude Code plugins for BigChange pods' agent workflows",
   "plugins": [
     { "name": "pod-harness", "source": "./plugins/pod-harness", "displayName": "Pod Harness", "description": "Set up a pod's way of working with Claude Code: a guided set-up, a health check, and a base configuration file a pod lead can share", "category": "development" }
   ]
