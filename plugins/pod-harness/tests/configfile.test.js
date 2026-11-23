@@ -42,6 +42,10 @@ test('reads a file with Windows line endings', () => {
   assert.equal(sections.Policies[0].id, 'pod-dod');
 });
 
+test('reads a file that starts with a byte-order mark, as Windows PowerShell writes it', () => {
+  assert.equal(parseConfigFile('﻿' + fixture('base-example.md')).sections.Pod.name, 'example');
+});
+
 test('render then parse returns the same meta and sections', () => {
   const parsed = parseConfigFile(fixture('base-example.md'));
   assert.deepEqual(parseConfigFile(renderConfigFile(parsed.meta, parsed.sections)), parsed);

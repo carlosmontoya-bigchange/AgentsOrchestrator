@@ -111,6 +111,59 @@ test('prove stores the proof in the personal layer', () => {
   assert.equal(cli(h, 'prove', 'no/such/repo').out.error.code, 'no-repo');
 });
 
+test('show says whether this machine wrote the base or imported it', () => {
+  assert.equal(cli(ready(), 'show').out.role, 'author');
+  const h = tempHome();
+  const file = path.join(tempDir(), 'base.md');
+  fs.writeFileSync(file, fixture('base-example.md'));
+  cli(h, 'import', file);
+  assert.equal(cli(h, 'show').out.role, 'member');
+});
+
+test('set refuses a webhook URL and stores nothing', () => {
+  const h = ready();
+  const r = cli(h, 'set', 'base', 'Delivery', '{"webhooks":[{"id":"teams","env":"https://example.invalid/SECRET"}]}');
+  assert.deepEqual([r.code, r.out.error.code], [1, 'secret']);
+  assert.equal(readLayer('example', 'base', h.env).sections.Delivery, undefined);
+});
+
+test('set reads an @file that starts with a byte-order mark', () => {
+  const h = ready();
+  const file = path.join(tempDir(), 'patch.json');
+  fs.writeFileSync(file, '﻿{"plan":false}');
+  assert.equal(cli(h, 'set', 'personal', 'Approvals', `@${file}`).code, 0);
+});
+
+test('a leftover personal repo is reported once and used by nothing', () => {
+  const h = ready();
+  cli(h, 'set', 'personal', 'Repos', JSON.stringify([{ id: 'h/gone', path: tempDir() }]));
+  const { out } = cli(h, 'doctor');
+  assert.deepEqual(out.problems.map((p) => [p.path, p.level]), [['repos[h/gone]', 'info'], [`repos[${SOLO}].path`, 'info']]); // Solo is set up but not cloned here
+  assert.deepEqual(out.access, []);
+  assert.deepEqual(cli(h, 'show').out.config.repos.map((r) => r.id), [SOLO]);
+  assert.deepEqual(cli(h, 'match', tempDir()).out.notCloned, [SOLO]);
+  assert.equal(cli(h, 'prove', 'h/gone').out.error.code, 'no-repo');
+});
+
+test('a personal file with wrongly shaped settings is reported by doctor, not a crash', () => {
+  const h = ready();
+  const file = path.join(h.dir, 'example', 'personal.md');
+  fs.appendFileSync(file, '\n# Repos\n\n```json\n{}\n```\n\n# Approvals\n\n```json\n[]\n```\n');
+  const r = cli(h, 'doctor');
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.out.problems.filter((p) => p.level === 'error').map((p) => p.path).slice(0, 2), ['repos', 'approvals']);
+});
+
+test('detect reports two folders with the same remote', () => {
+  const h = ready();
+  const ws = tempDir();
+  const a = makeRepo(ws, 'a', { remote: 'git@github.com:Org/Solo.git' });
+  const b = makeRepo(ws, 'b', { remote: 'git@github.com:Org/Solo.git' });
+  const { out } = cli(h, 'detect', ws);
+  assert.deepEqual(out.repos.map((r) => r.path), [a]);
+  assert.deepEqual(out.duplicates, [{ id: SOLO, kept: a, ignored: [b] }]);
+});
+
 test('doctor lists what differs from the base and never lists a local path', () => {
   const h = ready();
   cli(h, 'set', 'personal', 'Repos', JSON.stringify([{ id: SOLO, path: tempDir() }]));

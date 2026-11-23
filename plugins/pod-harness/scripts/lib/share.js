@@ -17,7 +17,7 @@ function importBase(filePath, opts) {
   const problems = validateBase(sections);
   if (problems.some((p) => p.level === 'error')) return { pod: meta.pod, problems };
   writeLayerText(meta.pod, 'base', text, opts.env);
-  initPod(meta.pod, opts.env); // creates personal.md if absent, sets the active pod
+  initPod(meta.pod, opts.env, 'member'); // creates personal.md if absent, sets the active pod
   return { pod: meta.pod, problems };
 }
 

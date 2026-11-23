@@ -24,6 +24,16 @@ test('initPod creates both files and the active pod, in a path with a space', ()
   assert.deepEqual(readLayer('example', 'personal', h.env).sections, {});
 });
 
+test('the active pod remembers whether this machine wrote the base or imported it', () => {
+  const h = tempHome();
+  assert.equal(store.getActiveRole(h.env), null);
+  initPod('example', h.env);
+  assert.equal(store.getActiveRole(h.env), 'author');
+  initPod('example', h.env, 'member');
+  assert.equal(store.getActiveRole(h.env), 'member');
+  assert.equal(getActivePod(h.env), 'example');
+});
+
 test('initPod does not overwrite files that exist', () => {
   const h = tempHome();
   initPod('example', h.env);

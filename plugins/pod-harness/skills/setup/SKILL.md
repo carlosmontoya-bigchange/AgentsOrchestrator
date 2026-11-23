@@ -27,6 +27,8 @@ You are guiding a developer through setting up their pod's configuration. The co
 
 Below, `<layer>` means the layer this rule gives.
 
+The mode is stored, so you never have to guess it. When you did not just run step 2 yourself (a new session, or `/pod-harness:setup <part>`), run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" show` first and read `role`: `author` or `member`. If it prints the error `no-pod`, nothing is set up yet: run all twelve steps.
+
 ## Running one part
 
 With an argument, run only that part, then show the result of step 12 for it:
@@ -59,6 +61,10 @@ Ask: "Do you have a base file from your pod lead?" (proposed: no).
 ### 3. Repos
 
 Ask which folder holds the pod's repos (proposed: the folder this session is in, or its parent if the session is inside one repo).
+
+Write every folder path in JSON with forward slashes (`C:/dev/app`, not `C:\dev\app`): a backslash changes the path.
+
+Both commands below also print `duplicates`: folders that hold the same remote as another one, such as a linked worktree beside its main clone. One folder per remote is kept. Tell the developer which folder was kept and which were left out, and ask whether that is the right one. To use another, store its path in `personal` yourself.
 
 **Member mode.** Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" match <folder>`.
 - For each `matched` repo, store its path: `set personal Repos '[{"id":"<id>","path":"<path>"}]'`.
@@ -110,7 +116,9 @@ A failed check does not stop set-up. Say what will not work until it is fixed.
 
 ### 6. Prove the commands
 
-Tell the developer this runs each repo's real build and tests once and may take minutes. Ask whether to run them now (proposed: yes).
+Run `show`. Show the exact build and test command for each repo that has a path, in a table, before anything runs. In member mode, say plainly that these commands come from the pod lead's base file and will run on this machine. Never run a command the developer has not seen.
+
+Then tell the developer this runs each repo's real build and tests once and may take minutes. Ask whether to run them now (proposed: yes). On a no, skip to step 8: nothing is proven and no permission rule is offered.
 
 For each repo that has a path, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" prove <id>` and show `build` and `test`.
 - `missing_env`: name the variables that are not set. Never ask for their values. The developer sets them and you run `prove` again.
@@ -120,7 +128,7 @@ For each repo that has a path, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" 
 
 ### 7. Permissions
 
-Offer to add allow rules for the proven build and test commands to the developer's Claude Code settings, so agents are not stopped by a permission prompt on every run (proposed: yes). Only on a yes: use the `update-config` skill if this session has it. Otherwise show the rules for the developer to add by hand. Add nothing else.
+Offer to add allow rules for the build and test commands that passed in step 6 to the developer's Claude Code settings, so agents are not stopped by a permission prompt on every run (proposed: yes). List the exact commands the rules would allow. Only on a yes: use the `update-config` skill if this session has it. Otherwise show the rules for the developer to add by hand. Add nothing else.
 
 ### 8. Trivial paths
 

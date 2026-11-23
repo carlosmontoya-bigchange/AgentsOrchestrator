@@ -3,9 +3,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { tempDir, makeRepo } = require('./helpers');
 const { run, runShell } = require('../scripts/lib/run.js');
-const { normalizeRemote, detectRepos, matchRepos } = require('../scripts/lib/detect.js');
+const { normalizeRemote, detectRepos, dedupeRepos, matchRepos } = require('../scripts/lib/detect.js');
 
 test('run and runShell report exit code, output and a timeout', () => {
   assert.equal(run('node', ['-e', 'process.exit(3)']).code, 3);
@@ -24,6 +25,38 @@ test('normalizeRemote makes one id from every spelling', () => {
   assert.equal(normalizeRemote('ssh://git@github.com/Org/Repo.git'), 'github.com/org/repo');
 });
 
+test('normalizeRemote makes one id from every Azure DevOps spelling', () => {
+  for (const u of [
+    'git@ssh.dev.azure.com:v3/Org/Proj/App',
+    'ssh://git@ssh.dev.azure.com:22/v3/Org/Proj/App',
+    'Org@vs-ssh.visualstudio.com:v3/Org/Proj/App',
+    'https://org.visualstudio.com/Proj/_git/App',
+    'https://org.visualstudio.com/DefaultCollection/Proj/_git/App',
+    'https://dev.azure.com:443/Org/Proj/_git/App',
+  ]) assert.equal(normalizeRemote(u), 'dev.azure.com/org/proj/_git/app', u);
+});
+
+test('two folders with the same remote: the main clone is kept, the linked worktree is reported', () => {
+  const ws = tempDir();
+  const main = makeRepo(ws, 'zmain', { remote: 'git@github.com:Org/Solo.git' });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: main, stdio: 'pipe' });
+  execFileSync('git', ['worktree', 'add', '-q', path.join(ws, 'awt')], { cwd: main, stdio: 'pipe' });
+  const detected = detectRepos(ws);
+  assert.deepEqual(detected.map((r) => [r.name, r.linked]), [['awt', true], ['zmain', false]]);
+  const { repos, duplicates } = dedupeRepos(detected);
+  assert.deepEqual(repos.map((r) => r.path), [main]);
+  assert.deepEqual(duplicates, [{ id: 'github.com/org/solo', kept: main, ignored: [path.join(ws, 'awt')] }]);
+  const m = matchRepos([{ id: 'github.com/org/solo' }], detected);
+  assert.deepEqual([m.matched, m.duplicates], [[{ id: 'github.com/org/solo', path: main }], duplicates]);
+});
+
+test('two full clones of one remote: the first by name is kept', () => {
+  const ws = tempDir();
+  const a = makeRepo(ws, 'a', { remote: 'git@github.com:Org/Solo.git' });
+  const b = makeRepo(ws, 'b', { remote: 'https://github.com/org/solo' });
+  assert.deepEqual(dedupeRepos(detectRepos(ws)).duplicates, [{ id: 'github.com/org/solo', kept: a, ignored: [b] }]);
+});
+
 test('finds child repos in a path with a space, their remote, trunk and dotnet commands', () => {
   const ws = tempDir();
   const app = makeRepo(ws, 'app', { remote: 'https://user@dev.azure.com/Org/Proj/_git/App.git', trunk: 'main', files: { 'App.slnx': '', 'App.sln': '', 'src/A.cs': '' } });
@@ -31,7 +64,7 @@ test('finds child repos in a path with a space, their remote, trunk and dotnet c
   const repos = detectRepos(ws);
   assert.equal(repos.length, 1);
   assert.deepEqual(repos[0], {
-    id: 'dev.azure.com/org/proj/_git/app', name: 'app', path: app, trunk: 'main',
+    id: 'dev.azure.com/org/proj/_git/app', name: 'app', path: app, linked: false, trunk: 'main',
     build: 'dotnet build App.slnx', test: 'dotnet test App.slnx',
     specialists: [{ glob: '**', agent: 'backend' }],
   });

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, tempHome, fixture, makeRepo } = require('./helpers');
-const { podDir, getActivePod, readLayer, patchLayer } = require('../scripts/lib/store.js');
+const { podDir, getActivePod, getActiveRole, readLayer, writeLayerText, patchLayer } = require('../scripts/lib/store.js');
 const { importBase, exportBase } = require('../scripts/lib/share.js');
 
 const opts = (h) => ({ env: h.env, pluginVersion: '0.1.0' });
@@ -62,6 +62,31 @@ test('import refuses a base that holds a local path and writes nothing', () => {
   const result = importBase(baseFile((t) => t.replace('"name": "App",', '"name": "App", "path": "C:/src/app",')), opts(h));
   assert.deepEqual(result.problems.map((p) => p.path), ['repos[dev.azure.com/org/proj/_git/app].path']);
   assert.equal(fs.existsSync(podDir('example', h.env)), false);
+});
+
+test('import marks this machine as a member of the pod', () => {
+  const h = tempHome();
+  importBase(baseFile(), opts(h));
+  assert.equal(getActiveRole(h.env), 'member');
+});
+
+test('import refuses wrongly shaped settings and a webhook URL, and writes nothing', () => {
+  const h = tempHome();
+  const shaped = importBase(baseFile((t) => t.replace(/# Repos\n\n```json\n[\s\S]*?\n```/, '# Repos\n\n```json\n[null]\n```')), opts(h));
+  assert.deepEqual(shaped.problems.map((p) => p.path), ['repos']);
+  const hook = importBase(baseFile((t) => t + '\n# Delivery\n\n```json\n{ "webhooks": [ { "id": "teams", "env": "https://example.invalid/SECRET" } ] }\n```\n'), opts(h));
+  assert.deepEqual(hook.problems.map((p) => p.path), ['delivery.webhooks']);
+  assert.equal(fs.existsSync(podDir('example', h.env)), false);
+});
+
+test('export refuses a base that holds a webhook URL', () => {
+  const h = tempHome();
+  importBase(baseFile(), opts(h));
+  const text = readLayer('example', 'base', h.env).text + '\n# Delivery\n\n```json\n{ "webhooks": [ { "id": "teams", "env": "https://example.invalid/SECRET" } ] }\n```\n';
+  writeLayerText('example', 'base', text, h.env);
+  const out = path.join(tempDir(), 'b.md');
+  assert.throws(() => exportBase('example', out, { env: h.env }), (e) => e.code === 'invalid-base');
+  assert.equal(fs.existsSync(out), false);
 });
 
 test('export copies the base to a folder outside any repo, creating the folder', () => {

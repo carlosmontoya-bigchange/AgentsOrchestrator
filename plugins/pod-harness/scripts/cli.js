@@ -6,8 +6,8 @@ const path = require('node:path');
 const { ConfigError } = require('./lib/configfile.js');
 const { resolveConfig, diffConfigs } = require('./lib/resolve.js');
 const store = require('./lib/store.js');
-const { validateConfig } = require('./lib/validate.js');
-const { detectRepos, matchRepos } = require('./lib/detect.js');
+const { validateConfig, sanitize, hasWebhookUrl } = require('./lib/validate.js');
+const { detectRepos, dedupeRepos, matchRepos } = require('./lib/detect.js');
 const { checkEnvironment, checkAccess, proveRepo } = require('./lib/checks.js');
 const { importBase, exportBase } = require('./lib/share.js');
 
@@ -23,7 +23,7 @@ function need(value, what) {
 }
 
 function readPatch(arg, cwd) {
-  const text = arg.startsWith('@') ? fs.readFileSync(path.resolve(cwd, arg.slice(1)), 'utf8') : arg;
+  const text = arg.startsWith('@') ? fs.readFileSync(path.resolve(cwd, arg.slice(1)), 'utf8').replace(/^﻿/, '') : arg;
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -39,7 +39,7 @@ const handlers = {
     return { pod, home: store.homeDir(c.env) };
   },
 
-  detect: ([dir], c) => ({ repos: detectRepos(path.resolve(c.cwd, need(dir, 'a folder'))) }),
+  detect: ([dir], c) => dedupeRepos(detectRepos(path.resolve(c.cwd, need(dir, 'a folder')))),
 
   match: ([dir], c) => matchRepos(c.load().config.repos, detectRepos(path.resolve(c.cwd, need(dir, 'a folder')))),
 
@@ -47,13 +47,17 @@ const handlers = {
 
   export: ([out], c) => exportBase(c.pod, path.resolve(c.cwd, need(out, 'a file to write')), { env: c.env }),
 
-  show: (args, c) => ({ pod: c.pod, config: c.load().config }),
+  show: (args, c) => ({ pod: c.pod, role: store.getActiveRole(c.env), config: c.load().config }),
 
   set: ([layer, heading, json], c) => {
     const patch = readPatch(need(json, 'a layer, a heading and the settings as JSON'), c.cwd);
+    if (hasWebhookUrl({ [heading]: patch })) {
+      throw new ConfigError('secret', 'That is a webhook URL. Nothing was stored. Keep the URL in an environment variable and give only the variable\'s name.', heading);
+    }
     store.patchLayer(c.pod, layer, heading, patch, c.env);
     const section = heading.toLowerCase();
-    const problems = validateConfig(c.load().config).filter((p) => p.level === 'error' && p.path.toLowerCase().startsWith(section));
+    const loaded = c.load();
+    const problems = [...loaded.problems, ...validateConfig(loaded.config)].filter((p) => p.level === 'error' && p.path.toLowerCase().startsWith(section));
     return { ok: true, problems };
   },
 
@@ -66,10 +70,10 @@ const handlers = {
   },
 
   doctor: (args, c) => {
-    const { config, defaults, base, personal } = c.load();
+    const { config, problems, defaults, base, personal } = c.load();
     return {
       environment: checkEnvironment({ env: c.env }),
-      problems: validateConfig(config),
+      problems: [...problems, ...validateConfig(config)],
       access: checkAccess(config),
       differs: diffConfigs(resolveConfig([defaults, base]), resolveConfig([defaults, base, personal])).filter((d) => !PERSONAL_PATH.test(d.path)),
     };
@@ -83,7 +87,12 @@ function main(argv, io) {
     if (!COMMANDS.includes(command)) throw new ConfigError('unknown-command', `Unknown command "${command}". Commands: ${COMMANDS.join(', ')}.`);
     const pod = store.getActivePod(io.env);
     if (!pod && !NO_POD_NEEDED.includes(command)) throw new ConfigError('no-pod', 'No pod is set up on this machine yet. Run /pod-harness:setup.');
-    const context = { env: io.env, cwd: io.cwd, pod, load: () => store.loadConfig(pod, { env: io.env, pluginRoot }) };
+    // Every command reads the configuration through sanitize, so a hand-edited file cannot crash one.
+    const load = () => {
+      const loaded = store.loadConfig(pod, { env: io.env, pluginRoot });
+      return { ...loaded, ...sanitize(loaded.config) };
+    };
+    const context = { env: io.env, cwd: io.cwd, pod, load };
     print(handlers[command](args, context));
     return 0;
   } catch (e) {

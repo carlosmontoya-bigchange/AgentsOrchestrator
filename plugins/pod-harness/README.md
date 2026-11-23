@@ -29,7 +29,7 @@ Everything is in `~/.pod-harness/` on your machine, outside every repo. Nothing 
 
 ```
 ~/.pod-harness/
-  active.json          which pod this machine uses
+  active.json          which pod this machine uses, and whether it wrote the base or imported it
   <pod>/base.md        the pod's shared settings (imported from the pod lead, or written by them)
   <pod>/personal.md    your own changes and everything local: repo folders, the work folder, proof that commands run
 ```

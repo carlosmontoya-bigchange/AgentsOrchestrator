@@ -33,17 +33,22 @@ function writeFileAtomic(file, text) {
   }
 }
 
-function getActivePod(env) {
+function readActive(env) {
   try {
-    return JSON.parse(fs.readFileSync(path.join(homeDir(env), 'active.json'), 'utf8')).pod || null;
+    return JSON.parse(fs.readFileSync(path.join(homeDir(env), 'active.json'), 'utf8')) || {};
   } catch {
-    return null;
+    return {};
   }
 }
 
-function setActivePod(pod, env) {
+const getActivePod = (env) => readActive(env).pod || null;
+
+// 'author': this machine wrote the pod base. 'member': it imported one.
+const getActiveRole = (env) => readActive(env).role || null;
+
+function setActivePod(pod, env, role = 'author') {
   podDir(pod, env);
-  writeFileAtomic(path.join(homeDir(env), 'active.json'), JSON.stringify({ pod }) + '\n');
+  writeFileAtomic(path.join(homeDir(env), 'active.json'), JSON.stringify({ pod, role }) + '\n');
 }
 
 function layerFile(pod, layer, env) {
@@ -53,12 +58,12 @@ function layerFile(pod, layer, env) {
 
 const newLayerText = (pod, layer) => renderConfigFile({ format: FORMAT, min_plugin: MIN_PLUGIN, layer, pod }, {});
 
-function initPod(pod, env) {
+function initPod(pod, env, role = 'author') {
   for (const layer of ['base', 'personal']) {
     const file = layerFile(pod, layer, env);
     if (!fs.existsSync(file)) writeFileAtomic(file, newLayerText(pod, layer));
   }
-  setActivePod(pod, env);
+  setActivePod(pod, env, role);
 }
 
 function readLayer(pod, layer, env) {
@@ -108,6 +113,6 @@ function loadConfig(pod, opts) {
 
 module.exports = {
   FORMAT, MIN_PLUGIN, PERSONAL_ONLY,
-  homeDir, podDir, getActivePod, setActivePod, initPod,
+  homeDir, podDir, getActivePod, getActiveRole, setActivePod, initPod,
   readLayer, writeLayerText, patchLayer, hasPersonalOnly, readDefaults, loadConfig,
 };

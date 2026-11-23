@@ -48,6 +48,14 @@ test('no skill tells Claude to write a configuration file directly, and each for
   }
 });
 
+test('setup learns its mode from the CLI, shows commands before running them, and handles duplicates and paths', () => {
+  const text = read('skills/setup/SKILL.md');
+  assert.match(text, /`role`/); // author or member comes from `show`, so `setup <part>` knows its layer in a new session
+  assert.match(text, /Show the exact build and test command/); // a base file is someone else's: never run its commands unseen
+  assert.match(text, /`duplicates`/);
+  assert.match(text, /forward slashes/);
+});
+
 test('the README documents the three commands and where the files live', () => {
   const text = read('README.md');
   for (const s of skills) assert.ok(text.includes(`/pod-harness:${s}`));
