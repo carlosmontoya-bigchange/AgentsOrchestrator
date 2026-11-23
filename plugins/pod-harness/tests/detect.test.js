@@ -3,25 +3,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
-const { tempDir } = require('./helpers');
+const { tempDir, makeRepo } = require('./helpers');
 const { run, runShell } = require('../scripts/lib/run.js');
 const { normalizeRemote, detectRepos, matchRepos } = require('../scripts/lib/detect.js');
-
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pipe' });
-
-function makeRepo(parent, name, opts = {}) {
-  const dir = path.join(parent, name);
-  fs.mkdirSync(dir, { recursive: true });
-  git(dir, 'init', '-q');
-  if (opts.remote) git(dir, 'remote', 'add', 'origin', opts.remote);
-  if (opts.trunk) git(dir, 'symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${opts.trunk}`);
-  for (const [file, content] of Object.entries(opts.files || {})) {
-    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-    fs.writeFileSync(path.join(dir, file), content);
-  }
-  return dir;
-}
 
 test('run and runShell report exit code, output and a timeout', () => {
   assert.equal(run('node', ['-e', 'process.exit(3)']).code, 3);
