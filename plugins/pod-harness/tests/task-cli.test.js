@@ -121,3 +121,12 @@ test('an unknown command and a machine with no pod are errors, not crashes', asy
   assert.equal((await taskCli({ env: { POD_HARNESS_HOME: path.join(h.ws, 'empty home') }, dir: h.ws }, 'status')).out.error.code, 'no-pod');
   for (const command of ['start', 'status', 'quiet']) assert.ok(TASK_COMMANDS.includes(command), command);
 });
+
+test('a trivial start writes the work order for one specialist', async () => {
+  const h = podHome();
+  const { out } = await taskCli(h, 'start', '--item', '8', '--predict', 'trivial', '--repo', 'App', '--place', 'src/Greeting.cs');
+  const order = JSON.parse(fs.readFileSync(path.join(out.dir, 'work-order.json'), 'utf8'));
+  assert.deepEqual([order.size, order.repos, order.agents.map((a) => a.agent)], ['trivial', [APP], ['backend']]);
+  const small = await taskCli(h, 'start', '--item', '9', '--predict', 'small', '--repo', 'App');
+  assert.equal(fs.existsSync(path.join(small.out.dir, 'work-order.json')), false);
+});

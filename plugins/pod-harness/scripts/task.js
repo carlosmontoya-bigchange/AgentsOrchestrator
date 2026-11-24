@@ -7,6 +7,7 @@ const store = require('./lib/store.js');
 const { sanitize, validateConfig } = require('./lib/validate.js');
 const { firstMatch } = require('./lib/glob.js');
 const tasks = require('./lib/taskstore.js');
+const { fastOrder, writeWorkOrder } = require('./lib/workorder.js');
 
 const TASK_COMMANDS = ['start', 'status', 'quiet'];
 const PREDICTIONS = ['trivial', 'small', 'full'];
@@ -80,6 +81,7 @@ const handlers = {
       path: fast ? 'fast' : 'full', size: fast ? 'trivial' : null,
       orchestrator: predicted === 'small' ? 'orchestrator_small' : 'orchestrator', stage: fast ? 'build' : 'understand',
     });
+    if (fast) writeWorkOrder(dir, fastOrder(repos[0], f.place));
     tasks.registerSession(c.env, f.session || c.env.CLAUDE_CODE_SESSION_ID, dir);
     return { id, dir, request_file: path.join(dir, 'request.md'), item_file: path.join(dir, 'item.md'), predicted, ...(reason ? { reason } : {}) };
   },
