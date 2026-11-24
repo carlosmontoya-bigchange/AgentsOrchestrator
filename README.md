@@ -2,7 +2,7 @@
 
 ## Plugins
 
-- [pod-harness](plugins/pod-harness/README.md): guided set-up of a pod's way of working with Claude Code, with a base file a pod lead can share.
+- [pod-harness](plugins/pod-harness/README.md): one way of working with Claude Code for a pod. A guided set-up with a base file a pod lead can share, and a task flow through understand, build, test and review.
 
 ## Use it as a plugin marketplace
 
