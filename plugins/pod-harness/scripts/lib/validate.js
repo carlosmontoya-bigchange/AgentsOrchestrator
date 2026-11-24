@@ -13,6 +13,9 @@ const RULE_LISTS = ['never', 'always_ask'];
 // A Claude Code permission rule: Tool or Tool(pattern), for example Bash(git push *) or mcp__server__tool.
 const PERMISSION_RULE = /^[A-Za-z_][\w*-]*(\(.+\))?$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// Every agent the design names. A pod can list skills for one before that agent is built.
+const AGENTS = ['orchestrator', 'explorer', 'architect', 'backend', 'frontend', 'database', 'tester', 'reviewer', 'delivery', 'advocate', 'critic', 'arbiter'];
+const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 const filled = (v) => typeof v === 'string' && v.trim() !== '';
 const positiveInt = (v) => Number.isInteger(v) && v > 0;
@@ -130,12 +133,21 @@ function validateConfig(config, opts = {}) {
     }
   }
 
+  const branch = typeof delivery.branch === 'string' && delivery.branch.includes('{id}') ? delivery.branch.replaceAll('{id}', '1') : '';
+  if (!BRANCH_NAME.test(branch) || branch.includes('..')) {
+    add('delivery.branch', 'delivery', 'The task branch pattern must contain {id} and make a branch name, for example task/{id}.');
+  }
+
   const teams = config.teams || {};
   for (const [agent, model] of Object.entries(teams.models || {})) {
     if (!MODELS.includes(model)) add(`teams.models.${agent}`, 'teams', `The model must be one of: ${MODELS.join(', ')}.`);
   }
   for (const key of ['max_agents_per_stage', 'max_same_kind']) {
     if (!positiveInt(teams[key])) add(`teams.${key}`, 'teams', `${key} must be a whole number above zero.`);
+  }
+  for (const [agent, list] of Object.entries(isObject(config.skills) ? config.skills : {})) {
+    if (!AGENTS.includes(agent)) add(`skills.${agent}`, 'teams', `"${agent}" is not an agent. Agents: ${AGENTS.join(', ')}.`);
+    else if (!stringList(list)) add(`skills.${agent}`, 'teams', `The skills for ${agent} must be a list of skill names.`);
   }
   const budget = config.budget || {};
   for (const key of ['tokens_per_stage', 'max_turns']) {
@@ -187,4 +199,4 @@ function checkReadable(meta, pluginVersion) {
   return { ok: true };
 }
 
-module.exports = { SUPPORTED_FORMAT, APPROVAL_KEYS, STAGE_KEYS, commandFor, sanitize, hasWebhookUrl, validateConfig, validateBase, compareVersions, checkReadable };
+module.exports = { SUPPORTED_FORMAT, AGENTS, APPROVAL_KEYS, STAGE_KEYS, commandFor, sanitize, hasWebhookUrl, validateConfig, validateBase, compareVersions, checkReadable };

@@ -102,7 +102,7 @@ The numbers under Teams and Budget are provisional until the first dry runs.
 # Delivery
 
 ```json
-{ "actor": "main", "remotes": [], "webhooks": [], "manual_tests": "", "never": [], "always_ask": [] }
+{ "actor": "main", "branch": "task/{id}", "remotes": [], "webhooks": [], "manual_tests": "", "never": [], "always_ask": [] }
 ```
 
 # Budget

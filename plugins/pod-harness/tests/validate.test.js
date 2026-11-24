@@ -5,7 +5,7 @@ const { pluginRoot, fixture } = require('./helpers');
 const { parseConfigFile } = require('../scripts/lib/configfile.js');
 const { resolveConfig } = require('../scripts/lib/resolve.js');
 const { readDefaults } = require('../scripts/lib/store.js');
-const { APPROVAL_KEYS, commandFor, validateConfig, validateBase, sanitize, compareVersions, checkReadable } = require('../scripts/lib/validate.js');
+const { AGENTS, APPROVAL_KEYS, commandFor, validateConfig, validateBase, sanitize, compareVersions, checkReadable } = require('../scripts/lib/validate.js');
 
 const APP = 'dev.azure.com/org/proj/_git/app';
 const exists = () => true; // the example paths are not on this machine
@@ -152,4 +152,20 @@ test('compareVersions orders 0.9.0 before 0.10.0', () => {
   assert.equal(compareVersions('0.9.0', '0.10.0'), -1);
   assert.equal(compareVersions('1.0.0', '0.10.0'), 1);
   assert.equal(compareVersions('0.1.0', '0.1.0'), 0);
+});
+
+test('skills must name known agents and list skill names', () => {
+  assert.deepEqual(validateConfig(good({ Skills: { backend: ['csharp-testing'] } }), { platform: 'win32', exists }), []);
+  assert.deepEqual(brief(validateConfig(good({ Skills: { nobody: [] } }), { platform: 'win32', exists })), [['skills.nobody', 'error', 'teams']]);
+  assert.deepEqual(brief(validateConfig(good({ Skills: { backend: 'x' } }), { platform: 'win32', exists })), [['skills.backend', 'error', 'teams']]);
+  assert.ok(AGENTS.includes('reviewer') && AGENTS.includes('architect'));
+});
+
+test('the branch pattern must contain {id} and make a branch name', () => {
+  for (const branch of ['task/{id}', 'feature/{id}-work']) {
+    assert.deepEqual(validateConfig(good({ Delivery: { branch } }), { platform: 'win32', exists }), [], branch);
+  }
+  for (const branch of ['task', '../{id}', 'a b/{id}', 'x/../{id}', 7]) {
+    assert.deepEqual(brief(validateConfig(good({ Delivery: { branch } }), { platform: 'win32', exists })), [['delivery.branch', 'error', 'delivery']], String(branch));
+  }
 });

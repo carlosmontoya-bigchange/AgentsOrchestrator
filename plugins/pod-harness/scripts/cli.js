@@ -10,8 +10,10 @@ const { validateConfig, sanitize, hasWebhookUrl } = require('./lib/validate.js')
 const { detectRepos, dedupeRepos, matchRepos } = require('./lib/detect.js');
 const { checkEnvironment, checkAccess, proveRepo } = require('./lib/checks.js');
 const { importBase, exportBase } = require('./lib/share.js');
+const { matchGlob } = require('./lib/glob.js');
+const { run } = require('./lib/run.js');
 
-const COMMANDS = ['env-check', 'init', 'detect', 'match', 'import', 'export', 'show', 'set', 'prove', 'doctor'];
+const COMMANDS = ['env-check', 'init', 'detect', 'match', 'import', 'export', 'show', 'set', 'prove', 'doctor', 'trivial-count'];
 const NO_POD_NEEDED = ['env-check', 'init', 'detect', 'import'];
 const pluginRoot = path.join(__dirname, '..');
 const pluginVersion = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8')).version;
@@ -67,6 +69,17 @@ const handlers = {
     const result = proveRepo(repo, { env: c.env });
     store.patchLayer(c.pod, 'personal', 'Repos', [{ id: repo.id, proof: { build: result.build, test: result.test, at: result.at } }], c.env);
     return result;
+  },
+
+  // How many tracked files each "never trivial" glob catches, so the author sees what a glob really covers.
+  'trivial-count': (args, c) => {
+    const { config } = c.load();
+    const repos = (config.repos || []).filter((r) => r.path).map((r) => ({
+      name: r.name,
+      files: run('git', ['-C', r.path, 'ls-files'], { timeoutMs: 60000 }).stdout.split('\n').filter(Boolean),
+    }));
+    const globs = Array.isArray(config.trivial && config.trivial.never) ? config.trivial.never : [];
+    return { counts: globs.flatMap((glob) => repos.map((r) => ({ glob, repo: r.name, files: r.files.filter((f) => matchGlob(glob, f)).length }))) };
   },
 
   doctor: (args, c) => {

@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { tempDir, tempHome, fixture, makeRepo } = require('./helpers');
 const { readLayer } = require('../scripts/lib/store.js');
 const { COMMANDS, main } = require('../scripts/cli.js');
@@ -27,8 +28,8 @@ function ready() {
   return h;
 }
 
-test('COMMANDS lists the ten commands', () => {
-  assert.deepEqual(COMMANDS, ['env-check', 'init', 'detect', 'match', 'import', 'export', 'show', 'set', 'prove', 'doctor']);
+test('COMMANDS lists the eleven commands', () => {
+  assert.deepEqual(COMMANDS, ['env-check', 'init', 'detect', 'match', 'import', 'export', 'show', 'set', 'prove', 'doctor', 'trivial-count']);
 });
 
 test('init, set, show round trip', () => {
@@ -175,4 +176,17 @@ test('doctor lists what differs from the base and never lists a local path', () 
   assert.deepEqual(out.problems, []);
   assert.deepEqual(out.environment.map((c) => c.name), ['node', 'git', 'spawn-depth', 'subagent-model']);
   assert.deepEqual(out.access.map((c) => c.name), ['remote:Solo']);
+});
+
+test('trivial-count counts tracked files per glob without regard to case', () => {
+  const h = ready();
+  const dir = makeRepo(tempDir(), 'solo', { files: { 'db/Migrations/1.sql': 'select 1;', 'src/a.cs': '', 'untracked.sql': '' } });
+  execFileSync('git', ['add', 'db', 'src'], { cwd: dir });
+  cli(h, 'set', 'personal', 'Repos', JSON.stringify([{ id: SOLO, path: dir }]));
+  cli(h, 'set', 'personal', 'Trivial', '{"never":["**/migrations/**","**/*.SQL","**/*.tf"]}');
+  assert.deepEqual(cli(h, 'trivial-count').out, { counts: [
+    { glob: '**/migrations/**', repo: 'Solo', files: 1 },
+    { glob: '**/*.SQL', repo: 'Solo', files: 1 },
+    { glob: '**/*.tf', repo: 'Solo', files: 0 },
+  ] });
 });
