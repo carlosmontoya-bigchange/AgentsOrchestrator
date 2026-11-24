@@ -29,6 +29,7 @@ function makeWorkspace(dir) {
       files: {
         'package.json': pkg('web', { build: 'node -e ""', test: 'node --test' }),
         'pnpm-lock.yaml': '',
+        '.gitignore': 'node_modules/\n', // running the commands leaves it behind; it is not the task's change
         'src/app.tsx': '// placeholder\n',
         'src/greeting.js': '\'use strict\';\n\nfunction greeting() {\n  return \'hello\';\n}\n\nmodule.exports = { greeting };\n',
         'tests/greeting.test.js': '\'use strict\';\nconst test = require(\'node:test\');\nconst assert = require(\'node:assert/strict\');\nconst { greeting } = require(\'../src/greeting.js\');\n\ntest(\'the greeting\', () => assert.equal(greeting(), \'hello\'));\n',
@@ -38,7 +39,7 @@ function makeWorkspace(dir) {
     makeRepo(dir, 'broken', {
       remote: 'git@github.com:example/broken.git',
       trunk: 'main',
-      files: { 'package.json': pkg('broken', { test: 'node -e "process.exit(1)"' }), 'src/thing.js': '// placeholder\n' },
+      files: { 'package.json': pkg('broken', { test: 'node -e "process.exit(1)"' }), '.gitignore': 'node_modules/\n', 'src/thing.js': '// placeholder\n' },
     }),
   ];
   repos.forEach(seed);

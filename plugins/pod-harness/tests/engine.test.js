@@ -126,6 +126,7 @@ test('after Build the diff is measured and the test run is asked for', async () 
   assert.deepEqual([diff.repos[0].id, diff.repos[0].name, diff.repos[0].product_files, diff.repos[0].branch, diff.repos[0].base, diff.trivial],
     [APP, 'App', 1, `task/${t.id}`, t.state().repos[APP].base, { trivial: true, reasons: [] }]);
   assert.deepEqual(r.show.map((s) => [s.stage, s.round]), [['build', 1]]);
+  assert.equal(r.show[0].lines[0], `App: 1 product file, 1 product line and 0 test lines changed on task/${t.id}.`);
   assert.ok(read(r.show[0].report).startsWith(`# Build report, task ${t.id}`));
 });
 

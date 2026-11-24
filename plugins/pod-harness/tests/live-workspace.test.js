@@ -27,6 +27,8 @@ test('a task can start in each live repo: one commit on main, a trunk to branch 
     assert.equal(out(repo, 'rev-parse', 'origin/main'), out(repo, 'rev-parse', 'HEAD'), repo);
     assert.equal(out(repo, 'status', '--porcelain'), '', repo);
   }
+  // Running the commands of these two leaves node_modules behind. It must not count as the task's change.
+  for (const repo of ['broken', 'web']) assert.equal(out(repo, 'check-ignore', 'node_modules/x'), 'node_modules/x', repo);
 });
 
 test('the web repo has a greeting with a test that passes, and the broken repo has a test that fails', () => {

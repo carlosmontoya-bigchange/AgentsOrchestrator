@@ -31,6 +31,7 @@ const model = (c, key) => ((c.config.teams || {}).models || {})[key] || 'sonnet'
 const repoOf = (c, id) => (c.config.repos || []).find((r) => r.id === id) || { id, name: id };
 const day = (c) => c.now().toISOString().slice(0, 10);
 const goTo = (c, stage, step) => { c.state.stage = stage; c.state.step = step; };
+const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const stillWorking = (c) => Boolean(c.state.dispatched) && c.now() - new Date(c.state.dispatched) < GRACE_MS;
 const working = (c) => ({ action: { type: 'wait', message: STILL_WORKING }, say: say(c.state.stage, 'the agents are still working.') });
@@ -306,7 +307,7 @@ function buildWaiting(c) {
   const after = stageAfter(c, 'build');
   const exceptions = got.items.flatMap((i) => i.report.markers.exceptions.map((x) => `${i.key}: ${x}`));
   const facts = [
-    ...measures.map((m) => `${m.name}: ${m.product_files} product files, ${m.product_lines} product lines and ${m.test_lines} test lines changed on ${m.branch}.`),
+    ...measures.map((m) => `${m.name}: ${count(m.product_files, 'product file')}, ${count(m.product_lines, 'product line')} and ${count(m.test_lines, 'test line')} changed on ${m.branch}.`),
     `Sensitive change: ${sensitive}.`,
     ...Object.values(state.repos).flatMap((r) => r.warnings || []),
     ...(judged ? (judged.trivial ? ['Measured as trivial.'] : judged.reasons.map((r) => `Not trivial: ${r}`)) : []),
