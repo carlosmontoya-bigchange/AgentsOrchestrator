@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { APP, WEB, podHome, taskCli } = require('./helpers');
 const store = require('../scripts/lib/store.js');
-const { readState, sessionTask } = require('../scripts/lib/taskstore.js');
+const { readState, writeState, sessionTask } = require('../scripts/lib/taskstore.js');
 const { TASK_COMMANDS } = require('../scripts/task.js');
 
 test('start creates the folder, the state and the session entry', async () => {
@@ -129,4 +129,53 @@ test('a trivial start writes the work order for one specialist', async () => {
   assert.deepEqual([order.size, order.repos, order.agents.map((a) => a.agent)], ['trivial', [APP], ['backend']]);
   const small = await taskCli(h, 'start', '--item', '9', '--predict', 'small', '--repo', 'App');
   assert.equal(fs.existsSync(path.join(small.out.dir, 'work-order.json')), false);
+});
+
+// A task waiting for its tests: Build round 1 changed a file in App and nothing in Web.
+async function atTestReady(h, id, commands = {}) {
+  store.patchLayer('example', 'base', 'Repos', [{ id: APP, build: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"', ...commands }], h.env);
+  const { out } = await taskCli(h, 'start', '--item', id, '--predict', 'small', '--repo', 'App');
+  const state = readState(out.dir);
+  writeState(out.dir, { ...state, stage: 'test', step: 'ready', round: { ...state.round, build: 1 } });
+  fs.mkdirSync(path.join(out.dir, 'build'), { recursive: true });
+  fs.writeFileSync(path.join(out.dir, 'build', 'diff.json'), JSON.stringify({ repos: [
+    { id: APP, name: 'App', files: [{ path: 'src/a.cs', added: 1, removed: 0, kind: 'product' }] },
+    { id: WEB, name: 'Web', files: [] },
+  ], trivial: null }));
+  return out.dir;
+}
+
+test('the test command refuses to run outside test.ready', async () => {
+  const h = podHome();
+  await taskCli(h, 'start', '--item', '3', '--predict', 'small');
+  const r = await taskCli(h, 'test', '3');
+  assert.deepEqual([r.code, r.out.error.code], [1, 'not-testing']);
+  assert.equal((await taskCli(h, 'test', 'no-such-task')).out.error.code, 'no-task');
+});
+
+test('the test command sets test.ran and writes the result of its round', async () => {
+  const h = podHome();
+  const dir = await atTestReady(h, '4');
+  const { code, out } = await taskCli(h, 'test', '4');
+  assert.deepEqual([code, out.result, out.round, out.repos.map((r) => [r.name, r.build, r.test])], [0, 'pass', 1, [['App', 'pass', 'pass']]]);
+  const state = readState(dir);
+  assert.deepEqual([state.stage, state.step, state.round.test], ['test', 'ran', 1]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'test', 'result.json'), 'utf8')).result, 'pass');
+  assert.equal((await taskCli(h, 'test', '4')).out.error.code, 'not-testing');
+});
+
+test('failing tests still set test.ran, and exit 0: the result is in the output', async () => {
+  const h = podHome();
+  const dir = await atTestReady(h, '5', { test: 'node -e "process.exit(1)"' });
+  const { code, out } = await taskCli(h, 'test', '5');
+  assert.deepEqual([code, out.result, readState(dir).step], [0, 'fail', 'ran']);
+});
+
+test('the test command does not start while a run is in flight', async () => {
+  const h = podHome();
+  const dir = await atTestReady(h, '6');
+  fs.mkdirSync(path.join(dir, 'test'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'test', 'running.json'), JSON.stringify({ pid: process.pid, at: '2026-11-24T09:59:00.000Z' }));
+  const r = await taskCli(h, 'test', '6');
+  assert.deepEqual([r.code, r.out.error.code, readState(dir).round.test], [1, 'tests-running', 0]);
 });

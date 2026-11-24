@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // One JSON document per command, for one task. The task skill calls this and acts on what it prints.
+const fs = require('node:fs');
 const path = require('node:path');
 const { ConfigError } = require('./lib/configfile.js');
 const store = require('./lib/store.js');
@@ -8,8 +9,9 @@ const { sanitize, validateConfig } = require('./lib/validate.js');
 const { firstMatch } = require('./lib/glob.js');
 const tasks = require('./lib/taskstore.js');
 const { fastOrder, writeWorkOrder } = require('./lib/workorder.js');
+const { runTests, isRunning } = require('./lib/testrun.js');
 
-const TASK_COMMANDS = ['start', 'status', 'quiet'];
+const TASK_COMMANDS = ['start', 'status', 'quiet', 'test'];
 const PREDICTIONS = ['trivial', 'small', 'full'];
 const pluginRoot = path.join(__dirname, '..');
 
@@ -87,6 +89,24 @@ const handlers = {
   },
 
   status: (args, c) => ({ tasks: tasks.listTasks(c.load()) }),
+
+  // Runs the build and test commands of the repos Build changed. The skill starts it in the background.
+  test: async ([id], c) => {
+    const config = c.load();
+    const dir = tasks.taskDir(config, id);
+    const state = tasks.readState(dir);
+    if (state.status !== 'running' || state.stage !== 'test' || state.step !== 'ready') {
+      throw new ConfigError('not-testing', `Task ${id} is not waiting for its tests. Run "next" to see what it needs.`);
+    }
+    if (isRunning(dir, c.now())) throw new ConfigError('tests-running', `The tests of task ${id} are already running.`);
+    const diff = JSON.parse(fs.readFileSync(tasks.stageFile(dir, 'build', 'diff', state.round.build, 'json'), 'utf8'));
+    const round = state.round.test + 1;
+    // The round is raised first: a run that dies half-way never shares its files with the next one.
+    tasks.writeState(dir, { ...state, round: { ...state.round, test: round } });
+    const result = await runTests(config, dir, diff.repos.filter((r) => r.files.length > 0).map((r) => r.id), round, { env: c.env, platform: c.platform, now: c.now });
+    tasks.writeState(dir, { ...tasks.readState(dir), step: 'ran' });
+    return result;
+  },
 
   quiet: ([id, value], c) => {
     if (value !== 'on' && value !== 'off') throw bad('Say "on" or "off".');
