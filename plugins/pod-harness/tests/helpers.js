@@ -40,4 +40,42 @@ function makeRepo(parent, name, opts = {}) {
   return dir;
 }
 
-module.exports = { pluginRoot, tempDir, tempHome, fixture, makeRepo };
+const APP = 'dev.azure.com/org/proj/_git/app';
+const WEB = 'github.com/org/web';
+
+// A pod "example" in a temp home with a work folder and two repos that have folders:
+// App (SQL goes to the database agent, the rest to backend) and Web (frontend).
+function podHome() {
+  const store = require('../scripts/lib/store.js');
+  const h = tempHome();
+  const ws = tempDir();
+  const dirs = { [APP]: path.join(ws, 'app'), [WEB]: path.join(ws, 'web') };
+  const repos = [
+    { id: APP, name: 'App', trunk: 'main', build: 'none', test: 'none', specialists: [{ glob: '**/*.sql', agent: 'database' }, { glob: '**', agent: 'backend' }] },
+    { id: WEB, name: 'Web', trunk: 'main', build: 'none', test: 'none', specialists: [{ glob: '**', agent: 'frontend' }] },
+  ];
+  store.initPod('example', h.env);
+  store.patchLayer('example', 'base', 'Pod', { name: 'example', tracker: { type: 'none' } }, h.env);
+  store.patchLayer('example', 'base', 'Repos', repos, h.env);
+  for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { recursive: true });
+  store.patchLayer('example', 'personal', 'Repos', repos.map((r) => ({ id: r.id, path: dirs[r.id] })), h.env);
+  store.patchLayer('example', 'personal', 'Reports', { work_dir: path.join(ws, 'work') }, h.env);
+  return { ...h, ws, work: path.join(ws, 'work'), app: dirs[APP], web: dirs[WEB] };
+}
+
+// The configuration a command would load for that home.
+function podConfig(h) {
+  const store = require('../scripts/lib/store.js');
+  const { sanitize } = require('../scripts/lib/validate.js');
+  return sanitize(store.loadConfig('example', { env: h.env, pluginRoot }).config).config;
+}
+
+// Runs one task.js command against a temp home and returns its exit code and parsed output.
+async function taskCli(h, ...argv) {
+  const { main } = require('../scripts/task.js');
+  let text = '';
+  const code = await main(argv, { env: h.env, stdout: { write: (s) => { text += s; } }, cwd: h.dir, now: () => new Date('2026-11-24T10:00:00.000Z') });
+  return { code, out: JSON.parse(text) };
+}
+
+module.exports = { pluginRoot, tempDir, tempHome, fixture, makeRepo, APP, WEB, podHome, podConfig, taskCli };
