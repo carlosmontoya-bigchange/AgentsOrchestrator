@@ -193,7 +193,10 @@ function compareVersions(a, b) {
 }
 
 function checkReadable(meta, pluginVersion) {
-  if (meta.format > SUPPORTED_FORMAT || compareVersions(meta.min_plugin, pluginVersion) > 0) {
+  if (meta.format > SUPPORTED_FORMAT) {
+    return { ok: false, message: `This file uses format ${meta.format}, which this version of pod-harness cannot read. Update the plugin, then run /pod-harness:setup again.` };
+  }
+  if (compareVersions(meta.min_plugin, pluginVersion) > 0) {
     return { ok: false, message: `This file needs pod-harness ${meta.min_plugin} or later. You have ${pluginVersion}. Update the plugin, then run /pod-harness:setup again.` };
   }
   return { ok: true };

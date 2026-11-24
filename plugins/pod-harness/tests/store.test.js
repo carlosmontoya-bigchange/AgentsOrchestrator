@@ -130,3 +130,11 @@ test('loadConfig merges defaults, base and personal', () => {
 test('the shipped defaults name the task branch task/{id}', () => {
   assert.equal(readDefaults(pluginRoot).sections.Delivery.branch, 'task/{id}');
 });
+
+test('writeFileAtomic is exported, creates the folder and leaves no temp file', () => {
+  const h = tempHome();
+  const file = path.join(h.dir, 'deep', 'er', 'state.json');
+  store.writeFileAtomic(file, '{}');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{}');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['state.json']);
+});

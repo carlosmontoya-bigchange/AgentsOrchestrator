@@ -66,3 +66,9 @@ test('replaceSection appends a heading the file does not have', () => {
   assert.equal(sections.Pod.name, 'example');
   assert.throws(() => replaceSection(after, 'Budgets', {}), (e) => e.code === 'unknown-heading');
 });
+
+test('a header line with a trailing space is read', () => {
+  const text = fixture('base-example.md').split('---').join('---  ');
+  assert.equal(parseConfigFile(text).meta.pod, 'example');
+  assert.equal(replaceSection(text, 'Pod', { name: 'x' }).includes('"name": "x"'), true);
+});

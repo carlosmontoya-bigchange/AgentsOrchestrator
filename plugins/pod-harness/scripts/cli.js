@@ -19,6 +19,13 @@ const pluginRoot = path.join(__dirname, '..');
 const pluginVersion = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8')).version;
 const PERSONAL_PATH = /^(repos\[.*\]\.(path|proof)|reports\.work_dir)$/;
 
+// A repo that only the personal file has differs as a whole record: its folder and proof stay on this machine.
+function withoutLocal(d) {
+  if (!/^repos\[.*\]$/.test(d.path) || !d.to || typeof d.to !== 'object') return d;
+  const { path: _path, proof: _proof, ...rest } = d.to;
+  return { ...d, to: rest };
+}
+
 function need(value, what) {
   if (!value) throw new ConfigError('missing-argument', `This command needs ${what}.`);
   return value;
@@ -47,7 +54,10 @@ const handlers = {
 
   import: ([file], c) => importBase(path.resolve(c.cwd, need(file, 'the base file')), { env: c.env, pluginVersion }),
 
-  export: ([out], c) => exportBase(c.pod, path.resolve(c.cwd, need(out, 'a file to write')), { env: c.env }),
+  export: (args, c) => {
+    const out = args.find((a) => a !== '--force');
+    return exportBase(c.pod, path.resolve(c.cwd, need(out, 'a file to write')), { env: c.env, force: args.includes('--force') });
+  },
 
   show: (args, c) => ({ pod: c.pod, role: store.getActiveRole(c.env), config: c.load().config }),
 
@@ -63,10 +73,10 @@ const handlers = {
     return { ok: true, problems };
   },
 
-  prove: ([repoId], c) => {
+  prove: async ([repoId], c) => {
     const repo = (c.load().config.repos || []).find((r) => r.id === repoId);
     if (!repo) throw new ConfigError('no-repo', `No repo with the id "${repoId}" is set up.`);
-    const result = proveRepo(repo, { env: c.env });
+    const result = await proveRepo(repo, { env: c.env });
     store.patchLayer(c.pod, 'personal', 'Repos', [{ id: repo.id, proof: { build: result.build, test: result.test, at: result.at } }], c.env);
     return result;
   },
@@ -88,12 +98,12 @@ const handlers = {
       environment: checkEnvironment({ env: c.env }),
       problems: [...problems, ...validateConfig(config)],
       access: checkAccess(config),
-      differs: diffConfigs(resolveConfig([defaults, base]), resolveConfig([defaults, base, personal])).filter((d) => !PERSONAL_PATH.test(d.path)),
+      differs: diffConfigs(resolveConfig([defaults, base]), resolveConfig([defaults, base, personal])).filter((d) => !PERSONAL_PATH.test(d.path)).map(withoutLocal),
     };
   },
 };
 
-function main(argv, io) {
+async function main(argv, io) {
   const print = (value) => io.stdout.write(JSON.stringify(value, null, 2) + '\n');
   const [command, ...args] = argv;
   try {
@@ -106,11 +116,11 @@ function main(argv, io) {
       return { ...loaded, ...sanitize(loaded.config) };
     };
     const context = { env: io.env, cwd: io.cwd, pod, load };
-    print(handlers[command](args, context));
+    print(await handlers[command](args, context));
     return 0;
   } catch (e) {
     if (e instanceof ConfigError) {
-      print({ error: { code: e.code, message: e.message, heading: e.heading } });
+      print({ error: { code: e.code, message: e.message, heading: e.heading, file: e.file } });
       return 1;
     }
     print({ error: { code: 'internal', message: e.message } });
@@ -119,7 +129,7 @@ function main(argv, io) {
 }
 
 if (require.main === module) {
-  process.exitCode = main(process.argv.slice(2), { env: process.env, stdout: process.stdout, cwd: process.cwd() });
+  main(process.argv.slice(2), { env: process.env, stdout: process.stdout, cwd: process.cwd() }).then((code) => { process.exitCode = code; });
 }
 
 module.exports = { COMMANDS, main };

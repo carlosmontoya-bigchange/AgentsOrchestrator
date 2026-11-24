@@ -28,7 +28,10 @@ function normalizeRemote(url) {
 function proposeCommands(dir) {
   const files = fs.readdirSync(dir).sort();
   const solution = files.find((f) => f.endsWith('.slnx')) || files.find((f) => f.endsWith('.sln'));
-  if (solution) return { build: `dotnet build ${solution}`, test: `dotnet test ${solution}` };
+  if (solution) {
+    const file = solution.includes(' ') ? `"${solution}"` : solution;
+    return { build: `dotnet build ${file}`, test: `dotnet test ${file}` };
+  }
   if (files.includes('package.json')) {
     let scripts = {};
     try {

@@ -70,7 +70,16 @@ function readLayer(pod, layer, env) {
   const file = layerFile(pod, layer, env);
   if (!fs.existsSync(file)) return null;
   const text = fs.readFileSync(file, 'utf8');
-  return { ...parseConfigFile(text), text };
+  try {
+    return { ...parseConfigFile(text), text };
+  } catch (e) {
+    // Two files are read for one command, so the error says which one is broken.
+    if (e instanceof ConfigError) {
+      e.file = `${layer}.md`;
+      e.message = `${e.file}: ${e.message}`;
+    }
+    throw e;
+  }
 }
 
 function writeLayerText(pod, layer, text, env) {
@@ -113,6 +122,6 @@ function loadConfig(pod, opts) {
 
 module.exports = {
   FORMAT, MIN_PLUGIN, PERSONAL_ONLY,
-  homeDir, podDir, getActivePod, getActiveRole, setActivePod, initPod,
+  homeDir, podDir, writeFileAtomic, getActivePod, getActiveRole, setActivePod, initPod,
   readLayer, writeLayerText, patchLayer, hasPersonalOnly, readDefaults, loadConfig,
 };

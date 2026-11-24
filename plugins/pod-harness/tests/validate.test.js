@@ -169,3 +169,8 @@ test('the branch pattern must contain {id} and make a branch name', () => {
     assert.deepEqual(brief(validateConfig(good({ Delivery: { branch } }), { platform: 'win32', exists })), [['delivery.branch', 'error', 'delivery']], String(branch));
   }
 });
+
+test('a newer format gets the format message', () => {
+  assert.deepEqual(checkReadable({ format: 2, min_plugin: '0.1.0' }, '0.1.0'), { ok: false,
+    message: 'This file uses format 2, which this version of pod-harness cannot read. Update the plugin, then run /pod-harness:setup again.' });
+});

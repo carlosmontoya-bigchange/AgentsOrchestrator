@@ -110,3 +110,14 @@ test('export of a pod with no base is refused', () => {
   const h = tempHome();
   assert.throws(() => exportBase('example', path.join(tempDir(), 'b.md'), { env: h.env }), (e) => e.code === 'no-base');
 });
+
+test('export refuses to overwrite a file unless forced', () => {
+  const h = tempHome();
+  importBase(baseFile(), opts(h));
+  const out = path.join(tempDir(), 'b.md');
+  fs.writeFileSync(out, 'mine');
+  assert.throws(() => exportBase('example', out, { env: h.env }), (e) => e.code === 'exists');
+  assert.equal(fs.readFileSync(out, 'utf8'), 'mine');
+  exportBase('example', out, { env: h.env, force: true });
+  assert.equal(fs.readFileSync(out, 'utf8'), fixture('base-example.md'));
+});
