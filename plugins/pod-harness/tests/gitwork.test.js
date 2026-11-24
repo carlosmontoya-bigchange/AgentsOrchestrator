@@ -158,3 +158,16 @@ test('the git module never discards or moves work', () => {
     assert.equal(source.includes(`'${word}'`), false, word);
   }
 });
+
+test('git never waits for someone to sign in: a fetch that needs a password fails at once', () => {
+  const r = repo();
+  const seen = [];
+  const run = (cmd, args, opts) => {
+    seen.push({ args: args.slice(2), env: opts.env });
+    return require('../scripts/lib/run.js').run(cmd, args, opts);
+  };
+  prepareRepo(r, 'task/1', { run });
+  const fetch = seen.find((s) => s.args[0] === 'fetch');
+  assert.deepEqual([fetch.env.GIT_TERMINAL_PROMPT, fetch.env.GCM_INTERACTIVE], ['0', 'Never']);
+  assert.equal(fetch.env.PATH || fetch.env.Path, process.env.PATH || process.env.Path, 'the rest of the environment is kept');
+});

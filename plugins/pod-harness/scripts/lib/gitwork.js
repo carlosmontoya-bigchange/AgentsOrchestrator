@@ -11,7 +11,9 @@ const branchName = (pattern, id) => pattern.replaceAll('{id}', id);
 
 function prepareRepo(repo, branch, opts = {}) {
   const run = opts.run || runner.run;
-  const git = (...args) => run('git', ['-C', repo.path, ...args], { timeoutMs: 120000 });
+  // No one is at this git's keyboard: a fetch that needs a sign-in must fail at once, not wait for an answer.
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
+  const git = (...args) => run('git', ['-C', repo.path, ...args], { timeoutMs: 120000, env });
   const text = (...args) => { const r = git(...args); return r.code === 0 ? r.stdout.trim() : null; };
   const problem = (message, fix) => ({ problem: { message, fix } });
   const trunk = `origin/${repo.trunk}`;
