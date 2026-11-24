@@ -73,6 +73,18 @@ function commitAll(dir, message) {
   return String(git(dir, 'rev-parse', 'HEAD')).trim();
 }
 
+// The two clones a pod's tests work in. They are made once per test file and copied for each test:
+// making them takes two dozen git calls, copying them takes two.
+let cloneTemplate = null;
+function copyClones(ws) {
+  if (!cloneTemplate) {
+    cloneTemplate = tempDir();
+    for (const name of ['app', 'web']) clonedRepo(cloneTemplate, name);
+  }
+  fs.cpSync(cloneTemplate, ws, { recursive: true });
+  for (const name of ['app', 'web']) git(path.join(ws, name), 'remote', 'set-url', 'origin', path.join(ws, `${name}.git`));
+}
+
 const APP = 'dev.azure.com/org/proj/_git/app';
 const WEB = 'github.com/org/web';
 
@@ -90,10 +102,8 @@ function podHome(opts = {}) {
   store.initPod('example', h.env);
   store.patchLayer('example', 'base', 'Pod', { name: 'example', tracker: { type: 'none' } }, h.env);
   store.patchLayer('example', 'base', 'Repos', repos, h.env);
-  for (const dir of Object.values(dirs)) {
-    if (opts.git) clonedRepo(ws, path.basename(dir));
-    else fs.mkdirSync(dir, { recursive: true });
-  }
+  if (opts.git) copyClones(ws);
+  else for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { recursive: true });
   store.patchLayer('example', 'personal', 'Repos', repos.map((r) => ({ id: r.id, path: dirs[r.id] })), h.env);
   store.patchLayer('example', 'personal', 'Reports', { work_dir: path.join(ws, 'work') }, h.env);
   return { ...h, ws, work: path.join(ws, 'work'), app: dirs[APP], web: dirs[WEB] };
