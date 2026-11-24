@@ -10,8 +10,9 @@ const { firstMatch } = require('./lib/glob.js');
 const tasks = require('./lib/taskstore.js');
 const { fastOrder, writeWorkOrder } = require('./lib/workorder.js');
 const { runTests, isRunning } = require('./lib/testrun.js');
+const engine = require('./lib/engine.js');
 
-const TASK_COMMANDS = ['start', 'status', 'quiet', 'test'];
+const TASK_COMMANDS = ['start', 'status', 'quiet', 'test', 'next', 'answer'];
 const PREDICTIONS = ['trivial', 'small', 'full'];
 const pluginRoot = path.join(__dirname, '..');
 
@@ -106,6 +107,22 @@ const handlers = {
     const result = await runTests(config, dir, diff.repos.filter((r) => r.files.length > 0).map((r) => r.id), round, { env: c.env, platform: c.platform, now: c.now });
     tasks.writeState(dir, { ...tasks.readState(dir), step: 'ran' });
     return result;
+  },
+
+  // The next thing only the main session can do for this task.
+  next: (args, c) => {
+    const f = parseFlags(args, { session: 'one' });
+    const config = c.load();
+    const dir = tasks.taskDir(config, f.rest[0]);
+    if (tasks.readState(dir).status === 'running') tasks.registerSession(c.env, f.session || c.env.CLAUDE_CODE_SESSION_ID, dir);
+    return engine.next({ config, dir, env: c.env, platform: c.platform, pluginRoot, now: c.now });
+  },
+
+  // The developer's answer to the open checkpoint. A change comes with a note file: @<file>.
+  answer: ([id, checkpoint, choice, note], c) => {
+    const config = c.load();
+    const notePath = note && note.startsWith('@') ? path.resolve(c.cwd, note.slice(1)) : undefined;
+    return engine.answer({ config, dir: tasks.taskDir(config, id), env: c.env, platform: c.platform, pluginRoot, now: c.now }, checkpoint, choice, notePath);
   },
 
   quiet: ([id, value], c) => {

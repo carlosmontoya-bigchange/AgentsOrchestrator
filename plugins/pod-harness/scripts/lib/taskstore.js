@@ -46,7 +46,7 @@ function createTask(dir, fields) {
     format: 1, id: null, pod: null, created: null, status: 'running', item: null, predicted: 'full', forced: false,
     path: 'full', size: null, orchestrator: 'orchestrator', stage: 'understand', step: 'ready',
     round: { understand: 0, build: 0, test: 0, review: 0 }, returns: { test: 0, review: 0, reroute: 0 }, redo: 0,
-    repos: {}, asking: null, asked: [], notes: [], grew: [], quiet: false, blocked: null,
+    repos: {}, asking: null, asked: [], notes: [], fix: null, grew: [], quiet: false, blocked: null,
     ...fields,
   };
   writeState(dir, state);
