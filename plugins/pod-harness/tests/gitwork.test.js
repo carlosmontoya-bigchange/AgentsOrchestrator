@@ -171,3 +171,22 @@ test('git never waits for someone to sign in: a fetch that needs a password fail
   assert.deepEqual([fetch.env.GIT_TERMINAL_PROMPT, fetch.env.GCM_INTERACTIVE], ['0', 'Never']);
   assert.equal(fetch.env.PATH || fetch.env.Path, process.env.PATH || process.env.Path, 'the rest of the environment is kept');
 });
+
+test('a detached HEAD is a problem: its commits would be left on no branch', () => {
+  const r = repo();
+  git(r.path, 'switch', '-q', '--detach');
+  writeFiles(r.path, { 'mine.txt': 'my own commit\n' });
+  const mine = commitAll(r.path, 'work on no branch');
+  const result = prepareRepo(r, 'task/1');
+  assert.deepEqual(result, { problem: { message: 'App is on no branch (a detached HEAD).', fix: `Switch to a branch in ${r.path}, then continue.` } });
+  assert.equal(out(r.path, 'rev-parse', 'HEAD'), mine);
+  assert.equal(out(r.path, 'branch', '--list', 'task/1'), '');
+});
+
+test('an edit in place counts each line once', () => {
+  const r = repo({ 'src/a.cs': lines(40) });
+  const { base } = prepareRepo(r, 'task/1');
+  writeFiles(r.path, { 'src/a.cs': lines(14) + Array.from({ length: 26 }, (_, i) => `changed ${i}\n`).join('') });
+  const m = measureRepo(r, base, []);
+  assert.deepEqual([m.files[0].added, m.files[0].removed, m.product_lines], [26, 26, 26]);
+});

@@ -62,6 +62,7 @@ const handlers = {
   start: (args, c) => {
     const f = parseFlags(args, { item: 'one', name: 'one', predict: 'one', repo: 'many', place: 'many', force: 'flag', session: 'one' });
     if (!f.item && !f.name) throw new ConfigError('missing-argument', 'This command needs --item <id> or --name <short name>.');
+    if (f.rest.length) throw bad(`"${f.rest.join(' ')}" does not belong to an option. Put a name of several words in quotes: --name "fix the label".`);
     if (!PREDICTIONS.includes(f.predict)) throw bad(`--predict must be one of: ${PREDICTIONS.join(', ')}.`);
     const config = c.load();
     const id = tasks.taskId({ item: f.item, name: f.name, now: c.now() });
@@ -114,15 +115,17 @@ const handlers = {
     const f = parseFlags(args, { session: 'one' });
     const config = c.load();
     const dir = tasks.taskDir(config, f.rest[0]);
-    if (tasks.readState(dir).status === 'running') tasks.registerSession(c.env, f.session || c.env.CLAUDE_CODE_SESSION_ID, dir);
-    return engine.next({ config, dir, env: c.env, platform: c.platform, pluginRoot, now: c.now });
+    const session = f.session || c.env.CLAUDE_CODE_SESSION_ID;
+    // A stopped task runs again on this call, so its session is registered too: the hook then records for it.
+    if (!['done', 'blocked'].includes(tasks.readState(dir).status)) tasks.registerSession(c.env, session, dir);
+    return engine.next({ config, dir, env: c.env, platform: c.platform, pluginRoot, now: c.now, session });
   },
 
   // The developer's answer to the open checkpoint. A change comes with a note file: @<file>.
   answer: ([id, checkpoint, choice, note], c) => {
     const config = c.load();
     const notePath = note && note.startsWith('@') ? path.resolve(c.cwd, note.slice(1)) : undefined;
-    return engine.answer({ config, dir: tasks.taskDir(config, id), env: c.env, platform: c.platform, pluginRoot, now: c.now }, checkpoint, choice, notePath);
+    return engine.answer({ config, dir: tasks.taskDir(config, id), env: c.env, platform: c.platform, pluginRoot, now: c.now, session: c.env.CLAUDE_CODE_SESSION_ID }, checkpoint, choice, notePath);
   },
 
   quiet: ([id, value], c) => {

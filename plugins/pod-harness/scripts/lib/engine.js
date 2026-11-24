@@ -18,6 +18,10 @@ const RANK = ['trivial', 'S', 'M', 'L'];
 // How often a loop may repeat before the developer takes over.
 const LIMITS = { redo: 2, test: 2, review: 2, reroute: 1 };
 const CHOICES = ['continue', 'change', 'stop'];
+// An Agent call can return before its agent has finished. For this long after a dispatch, a missing report
+// means "still working", not "left no report": it costs no retry.
+const GRACE_MS = 30 * 1000;
+const STILL_WORKING = 'The agents are still working. Run next again when every agent of the wave has finished.';
 const MODE_NOTE = 'The permission mode could not be read, so every checkpoint is asked. To ask nothing for this task, say so.';
 const NOT_DONE = 'Not done by the harness in this version: commit, push, pull request, tracker update.';
 
@@ -27,6 +31,16 @@ const model = (c, key) => ((c.config.teams || {}).models || {})[key] || 'sonnet'
 const repoOf = (c, id) => (c.config.repos || []).find((r) => r.id === id) || { id, name: id };
 const day = (c) => c.now().toISOString().slice(0, 10);
 const goTo = (c, stage, step) => { c.state.stage = stage; c.state.step = step; };
+
+const stillWorking = (c) => Boolean(c.state.dispatched) && c.now() - new Date(c.state.dispatched) < GRACE_MS;
+const working = (c) => ({ action: { type: 'wait', message: STILL_WORKING }, say: say(c.state.stage, 'the agents are still working.') });
+
+// The mode the hook recorded for this session. A record left by another session says nothing about this one.
+function recordedMode(c) {
+  const mode = tasks.readMode(c.dir);
+  if (!mode || (c.session && mode.session && mode.session !== c.session)) return null;
+  return mode.value;
+}
 
 function readJson(file) {
   try {
@@ -102,6 +116,7 @@ function stageReport(c, stage, entries, facts, open, next) {
 
 function dispatch(c, stage, wavesOfEntries) {
   const round = c.state.round[stage];
+  c.state.dispatched = c.now().toISOString();
   return {
     type: 'dispatch', stage,
     waves: wavesOfEntries.map((wave) => wave.map((e) => ({
@@ -123,6 +138,7 @@ function collect(c, stage, entries) {
     c.state.redo = 0;
     return { items };
   }
+  if (stillWorking(c)) return working(c);
   const names = missing.map((i) => i.key).join(', ');
   if (c.state.redo >= LIMITS.redo) return blocked(c, `${names} wrote no report in three runs.`);
   c.state.redo += 1;
@@ -142,8 +158,7 @@ function proceed(c, then) {
 // Raises a checkpoint. Whether it is asked follows the permission mode; one that is not asked is logged and continued.
 function raise(c, { checkpoint, produced, report, affected, next, openPoints, then, change }) {
   const { state } = c;
-  const mode = tasks.readMode(c.dir);
-  const value = mode ? mode.value : null;
+  const value = recordedMode(c);
   const decision = decide({ checkpoint, approvals: c.config.approvals, mode: value, quiet: state.quiet, size: state.size, openPoints: openPoints.length });
   state.asked.push(`${checkpoint}:${state.stage}:${state.round[state.stage]}`);
   const entry = { at: c.now().toISOString(), checkpoint, mode: value, outcome: decision.ask ? 'asked' : 'skipped', reason: decision.reason };
@@ -183,6 +198,7 @@ function understandWaiting(c) {
   const { state, dir } = c;
   const round = state.round.understand;
   const { order, problems } = readWorkOrder(dir);
+  if (!order && problems.length === 0 && stillWorking(c)) return working(c);
   const invalid = order ? validateWorkOrder(order, c.config) : [];
   const small = state.orchestrator === 'orchestrator_small';
   const usable = order && invalid.length === 0;
@@ -250,9 +266,11 @@ function buildReady(c) {
 
   // Every repo is put on the task branch each time Build starts: the developer may have switched since.
   const branch = branchName(c.config.delivery.branch, state.id);
+  const warnings = [];
   for (const id of order.repos) {
     const prepared = prepareRepo(repoOf(c, id), branch);
     if (prepared.problem) return fix([prepared.problem]);
+    warnings.push(...prepared.warnings);
     if (!state.repos[id]) state.repos[id] = { branch: prepared.branch, base: prepared.base, ...(prepared.warnings.length ? { warnings: prepared.warnings } : {}) };
   }
 
@@ -263,7 +281,7 @@ function buildReady(c) {
     writeBrief(dir, 'build', entry.key, state.round.build, renderBrief('build', briefContext(c, { order, entry, model: entry.model, inputs })));
   }
   state.step = 'waiting';
-  return { action: dispatch(c, 'build', waves(entries)), say: say('build', `${entries.map((e) => `${e.key} in ${repoOf(c, e.repo).name}`).join(', ')}.`) };
+  return { action: dispatch(c, 'build', waves(entries)), say: say('build', [`${entries.map((e) => `${e.key} in ${repoOf(c, e.repo).name}`).join(', ')}.`, ...warnings].join(' ')) };
 }
 
 function buildWaiting(c) {
@@ -286,11 +304,13 @@ function buildWaiting(c) {
 
   const changed = measures.some((m) => m.files.length > 0);
   const after = stageAfter(c, 'build');
+  const exceptions = got.items.flatMap((i) => i.report.markers.exceptions.map((x) => `${i.key}: ${x}`));
   const facts = [
     ...measures.map((m) => `${m.name}: ${m.product_files} product files, ${m.product_lines} product lines and ${m.test_lines} test lines changed on ${m.branch}.`),
     `Sensitive change: ${sensitive}.`,
     ...Object.values(state.repos).flatMap((r) => r.warnings || []),
     ...(judged ? (judged.trivial ? ['Measured as trivial.'] : judged.reasons.map((r) => `Not trivial: ${r}`)) : []),
+    ...exceptions.map((x) => `Not done, a policy needs your yes: ${x}`),
   ];
   const report = stageReport(c, 'build', got.items, facts, [], changed ? `${title(after.stage)}.` : 'Nothing: Build changed no file.');
   if (!changed) return blocked(c, 'Build changed no file.');
@@ -308,7 +328,6 @@ function buildWaiting(c) {
       then: { stage: 'understand', step: 'ready' }, change: { stage: 'understand', step: 'ready' },
     });
   }
-  const exceptions = got.items.flatMap((i) => i.report.markers.exceptions.map((x) => `${i.key}: ${x}`));
   if (exceptions.length) {
     return raise(c, {
       checkpoint: 'policy_exception', produced: 'A Build agent left something undone because a pod policy needs your yes for it.', report: report.file,
@@ -337,7 +356,8 @@ function finishTest(c, items) {
   const result = readJson(resultFile(c));
   // A missing "Result" line counts as fail.
   const failed = result.result === 'fail' || (items.length > 0 && items[0].report.markers.result !== 'pass');
-  const facts = [failed ? 'The tests failed.' : 'The tests passed.', ...result.repos.map((r) => `${r.name}: build ${r.build}, test ${r.test}${r.missing_env ? `, not set: ${r.missing_env.join(', ')}` : ''}${r.output ? `, output in ${path.basename(r.output)}` : ''}.`)];
+  const ran = result.repos.some((r) => r.build === 'pass' || r.test === 'pass');
+  const facts = [failed ? 'The tests failed.' : ran ? 'The tests passed.' : 'No build or test command ran.', ...result.open, ...result.repos.map((r) => `${r.name}: build ${r.build}, test ${r.test}${r.missing_env ? `, not set: ${r.missing_env.join(', ')}` : ''}${r.output ? `, output in ${path.basename(r.output)}` : ''}.`)];
   const again = state.returns.test < LIMITS.test;
   const reroute = !again && state.returns.reroute < LIMITS.reroute;
   const after = stageAfter(c, 'test');
@@ -425,7 +445,9 @@ function reviewWaiting(c) {
   state.notes = [];
   return raise(c, {
     checkpoint: 'review_result', produced: approve ? 'The Reviewer approves the change.' : 'The Reviewer asks for changes.', report: report.file,
-    affected: affects(c, Object.keys(state.repos)), next, openPoints: report.points,
+    affected: affects(c, Object.keys(state.repos)), next,
+    // What the Test stage skipped has no checkpoint of its own: it is put before the developer here.
+    openPoints: [...report.points, ...(state.round.test > 0 && fs.existsSync(resultFile(c)) ? readJson(resultFile(c)).open : [])],
     then, change: { stage: 'build', step: 'ready', ...(approve ? {} : { fix: findings }) },
   });
 }
@@ -446,7 +468,7 @@ const STEPS = {
   'close.ready': closeReady,
 };
 
-// ctx: { config, dir, env, platform, pluginRoot, now }
+// ctx: { config, dir, env, platform, pluginRoot, now, session? }
 async function next(ctx) {
   const state = tasks.readState(ctx.dir);
   const before = JSON.stringify(state);
@@ -454,7 +476,7 @@ async function next(ctx) {
   // The state is written only when it changed: the test command writes it too, while "next" may be waiting.
   const done = (r) => {
     if (JSON.stringify(state) !== before) tasks.writeState(ctx.dir, state);
-    return { id: state.id, stage: state.stage, step: state.step, say: r.say, show: c.show, ...(c.note ? { note: c.note } : {}), action: r.action };
+    return { id: state.id, dir: ctx.dir, stage: state.stage, step: state.step, say: r.say, show: c.show, ...(c.note ? { note: c.note } : {}), action: r.action };
   };
 
   if (state.status === 'done' || state.status === 'blocked') return done(ended(c));
@@ -462,8 +484,7 @@ async function next(ctx) {
   if (!fs.existsSync(request) || fs.readFileSync(request, 'utf8').trim() === '') {
     return done(fix([{ message: 'The task has no request yet.', fix: `Write what is asked to ${request}, then continue.` }]));
   }
-  const mode = tasks.readMode(ctx.dir);
-  if (mode && mode.value === 'plan') return done(fix([{ message: 'Plan mode is on. The harness cannot write in Plan mode.', fix: 'Leave Plan mode, then continue.' }]));
+  if (recordedMode(c) === 'plan') return done(fix([{ message: 'Plan mode is on. The harness cannot write in Plan mode.', fix: 'Leave Plan mode, then continue.' }]));
 
   if (state.status === 'stopped') state.status = 'running';
   if (state.asking) return done({ action: { type: 'ask', checkpoint: state.asking.checkpoint, ...state.asking.ask }, say: `Checkpoint: ${state.asking.ask.header}.` });
@@ -484,10 +505,9 @@ function answer(ctx, checkpoint, choice, notePath) {
     throw new ConfigError('no-note', 'A change needs a note file with the developer\'s own words.');
   }
   const c = { ...ctx, state, show: [] };
-  const mode = tasks.readMode(ctx.dir);
   const { then, change, reason } = state.asking;
   tasks.logApproval(ctx.dir, {
-    at: ctx.now().toISOString(), checkpoint, mode: mode ? mode.value : null, outcome: 'asked', reason, answer: choice, ...(choice === 'change' ? { note: notePath } : {}),
+    at: ctx.now().toISOString(), checkpoint, mode: recordedMode(c), outcome: 'asked', reason, answer: choice, ...(choice === 'change' ? { note: notePath } : {}),
   });
   if (choice === 'stop') state.status = 'stopped'; // the question stays open: the next call asks it again
   else {

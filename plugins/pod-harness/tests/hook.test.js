@@ -47,7 +47,7 @@ test('a user prompt records the mode for the session\'s task', () => {
   const { h, dir } = running();
   assert.deepEqual(hook(h, event('UserPromptSubmit', { prompt: 'continue' })), QUIET);
   const mode = readMode(dir);
-  assert.deepEqual([mode.value, mode.event], ['acceptEdits', 'UserPromptSubmit']);
+  assert.deepEqual([mode.value, mode.event, mode.session], ['acceptEdits', 'UserPromptSubmit', 'sess-1']);
   assert.ok(Math.abs(Date.now() - new Date(mode.at)) < 60000);
 });
 
@@ -115,4 +115,11 @@ test('hooks.json names the four events and calls hook.js through the plugin root
   assert.ok(new RegExp(`^(${config.hooks.PreToolUse[0].matcher})$`).test('Agent'));
   assert.equal(new RegExp(`^(${config.hooks.PreToolUse[0].matcher})$`).test('Bash'), false);
   for (const name of ['UserPromptSubmit', 'SubagentStop']) assert.equal(config.hooks[name][0].matcher, undefined, name);
+});
+
+test('a hook that cannot load its own code still exits 0 and prints nothing', () => {
+  const dir = tempDir();
+  fs.copyFileSync(HOOK, path.join(dir, 'hook.js')); // without scripts/lib beside it
+  const r = spawnSync(process.execPath, [path.join(dir, 'hook.js')], { input: JSON.stringify(event('UserPromptSubmit')), encoding: 'utf8' });
+  assert.deepEqual([r.status, r.stdout, r.stderr], [0, '', '']);
 });

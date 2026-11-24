@@ -19,7 +19,9 @@ function prepareRepo(repo, branch, opts = {}) {
   const trunk = `origin/${repo.trunk}`;
 
   if (text('rev-parse', '--git-dir') === null) return problem(`${repo.name}: ${repo.path} is not a git repo.`, `Run /pod-harness:setup repo ${repo.path}.`);
-  const current = text('symbolic-ref', '--short', '-q', 'HEAD') || 'a detached HEAD';
+  const current = text('symbolic-ref', '--short', '-q', 'HEAD');
+  // Switching away from a detached HEAD would leave its commits on no branch.
+  if (current === null) return problem(`${repo.name} is on no branch (a detached HEAD).`, `Switch to a branch in ${repo.path}, then continue.`);
   // Where the task's work starts: everything after this commit is measured as the task's change.
   const forkPoint = () => text('merge-base', 'HEAD', trunk) || text('rev-parse', 'HEAD');
   if (current === branch) return { branch, base: forkPoint(), warnings: [] };
@@ -82,7 +84,8 @@ function measureRepo(repo, base, never, opts = {}) {
   });
   const added = git('ls-files', '--others', '--exclude-standard', '-z').map((file) => ({ path: file, added: countLines(path.join(repo.path, file)), removed: 0 }));
   const files = [...changed, ...added].map((f) => ({ ...f, kind: classify(f.path) })).sort((a, b) => (a.path < b.path ? -1 : 1));
-  const sum = (kind) => files.filter((f) => f.kind === kind).reduce((n, f) => n + f.added + f.removed, 0);
+  // A line edited in place is one removed and one added: it counts once.
+  const sum = (kind) => files.filter((f) => f.kind === kind).reduce((n, f) => n + Math.max(f.added, f.removed), 0);
   return {
     files,
     product_files: files.filter((f) => f.kind === 'product').length,

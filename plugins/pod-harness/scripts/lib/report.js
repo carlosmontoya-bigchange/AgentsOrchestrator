@@ -7,12 +7,23 @@ const NOTHING = /^(none\.?|n\/a|-)?$/i;
 
 const item = (line) => line.trim().replace(/^[-*]\s+/, '');
 
-// A marker starts its line. A list bullet and bold marks around the label are let through: models add them.
-const marker = (label, values) => new RegExp(`^\\s*(?:[-*]\\s+)?\\**\\s*${label}\\s*:\\**\\s*(${values})`, 'i');
+// A marker starts its line. A list bullet, bold marks and the endings a model adds ("approved", "passed") are
+// let through: a marker that is not recognised is read as the careful answer and costs a whole loop.
+const marker = (label, values) => new RegExp(`^\\s*(?:[-*]\\s+)?\\**\\s*${label}\\s*:[\\s*]*(${values})`, 'i');
 const SENSITIVE = marker('sensitive change', 'yes\\b|no\\b');
-const RESULT = marker('result', 'pass\\b|fail\\b');
-const VERDICT = marker('verdict', 'approve\\b|changes\\b');
+const RESULT = marker('result', 'pass(?:ed|es)?\\b|fail(?:ed|s)?\\b');
+const VERDICT = marker('verdict', 'approve[ds]?\\b|changes?\\b');
 const EXCEPTION = marker('policy exception', '.+?\\s*$');
+const NO_EXCEPTION = /^(none\.?|n\/a|no\.?|-)$/i;
+
+// "approved" is approve, "passed" is pass, "change" is changes.
+function plain(value) {
+  const word = value.toLowerCase();
+  for (const [start, answer] of [['pass', 'pass'], ['fail', 'fail'], ['approve', 'approve'], ['change', 'changes']]) {
+    if (word.startsWith(start)) return answer;
+  }
+  return word;
+}
 
 function parseReport(text) {
   const lines = String(text).replace(/\s+$/, '').split(/\r?\n/);
@@ -28,9 +39,10 @@ function parseReport(text) {
   const body = (heading) => (sections.get(heading.toLowerCase()) || []).map(item).filter((line) => line !== '');
 
   // When a marker is written twice with two answers, the careful one counts.
-  const answers = (re) => lines.flatMap((line) => { const m = re.exec(line); return m ? [m[1].trim().toLowerCase()] : []; });
+  const answers = (re) => lines.flatMap((line) => { const m = re.exec(line); return m ? [plain(m[1].trim())] : []; });
   const careful = (re, wary) => { const all = answers(re); return all.includes(wary) ? wary : all[0]; };
-  const markers = { exceptions: lines.flatMap((line) => { const m = EXCEPTION.exec(line); return m ? [m[1].trim()] : []; }) };
+  const exceptions = lines.flatMap((line) => { const m = EXCEPTION.exec(line); return m ? [m[1].replace(/\*+$/, '').trim()] : []; });
+  const markers = { exceptions: exceptions.filter((x) => !NO_EXCEPTION.test(x)) };
   for (const [key, re, wary] of [['sensitive', SENSITIVE, 'yes'], ['result', RESULT, 'fail'], ['verdict', VERDICT, 'changes']]) {
     const value = careful(re, wary);
     if (value !== undefined) markers[key] = value;

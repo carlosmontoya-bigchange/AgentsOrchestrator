@@ -53,7 +53,7 @@ test('"none" is not a failure', async () => {
 });
 
 test('a command recorded as not run at set-up is skipped and listed as open', async () => {
-  const s = setup({ build: FAIL, proof: { build: 'not-run', test: 'pass' } });
+  const s = setup({ build: FAIL, proof: { build: 'not-here', test: 'pass' } });
   const result = await runTests(s.config, s.dir, s.ids, 1, { env: process.env, now });
   assert.deepEqual([result.result, statuses(result)], ['pass', [['skipped', 'pass']]]);
   assert.deepEqual(result.open, ['Repo0: the build command is recorded as not run on this machine.']);
@@ -118,4 +118,11 @@ test('a run file that is old, or whose process is gone, does not count as runnin
   assert.equal(isRunning(dir, at), false);
   fs.writeFileSync(path.join(dir, 'test', 'running.json'), 'half a fi');
   assert.equal(isRunning(dir, at), false);
+});
+
+test('a command the set-up itself left as not-run is run, not skipped', async () => {
+  // prove writes not-run for the tests when the build failed at set-up. That is not the developer's choice.
+  const s = setup({ test: FAIL, proof: { build: 'fail', test: 'not-run' } });
+  const result = await runTests(s.config, s.dir, s.ids, 1, { env: process.env, now });
+  assert.deepEqual([result.result, statuses(result), result.open], ['fail', [['pass', 'fail']], []]);
 });

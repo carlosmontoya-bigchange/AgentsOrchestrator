@@ -79,7 +79,8 @@ function yourPart(kind, ctx, policies, agent) {
   if (policies.own.length) out.push('Policies for your work:', ...policies.own.map((p) => policyLine(p, agent === 'reviewer')), '');
   if (policies.ask.length) {
     out.push('Needs the developer\'s yes first:', ...policies.ask.map((p) => policyLine(p)),
-      'If your job would do what one of these covers, do not do it. Write `Policy exception: <id> - <what you would do>` under Open points.', '');
+      'If your job would do what one of these covers, do not do it. Write `Policy exception: <id> - <what you would do>` under Open points.',
+      'A note under Task in which the developer allows it is that yes.', '');
   }
   const skills = records((ctx.config.skills || {})[agent]);
   if (skills.length) out.push(`Use these skills: ${skills.join(', ')}.`, '');
@@ -100,7 +101,11 @@ function repoSection(kind, ctx) {
   const ids = kind === 'build' ? [ctx.entry.repo] : records(ctx.order && ctx.order.repos);
   const shell = ctx.platform === 'win32' ? '`cmd.exe`' : '`/bin/sh`';
   for (const repo of all.filter((r) => ids.includes(r.id))) {
-    const command = (key) => { const c = commandFor(repo[key], ctx.platform); return c === null || c === 'none' ? 'none' : tick(c); };
+    const command = (key) => {
+      const c = commandFor(repo[key], ctx.platform);
+      if (c === null || c === 'none') return 'none';
+      return tick(c) + (repo.proof && repo.proof[key] === 'not-here' ? ' (recorded as not running on this machine: do not run it)' : '');
+    };
     out.push(`${repo.name}: folder ${tick(repo.path)}, trunk ${repo.trunk}.`, `- Build: ${command('build')}`, `- Test: ${command('test')}`);
     if (records(repo.env).length) out.push(`- These commands need the environment variables: ${repo.env.join(', ')}.`);
     out.push('');

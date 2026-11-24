@@ -102,3 +102,22 @@ test('the line limit is opus_lines for opus and sonnet_lines otherwise', () => {
   const config = { reports: { sonnet_lines: 40, opus_lines: 80 } };
   assert.deepEqual([lineLimit(config, 'opus'), lineLimit(config, 'sonnet'), lineLimit(config, 'haiku')], [80, 40, 40]);
 });
+
+test('a marker is read in the forms a model writes it', () => {
+  const verdict = (line) => parseReport(report({ Evidence: line })).markers.verdict;
+  for (const line of ['Verdict: approved', 'Verdict: **approve**', '**Verdict: approve**', 'Verdict: Approve.', 'Verdict: approves']) assert.equal(verdict(line), 'approve', line);
+  for (const line of ['Verdict: changes', 'Verdict: change', 'Verdict: changes needed', 'Verdict: **changes**']) assert.equal(verdict(line), 'changes', line);
+  for (const line of ['Verdict: approval pending', 'Verdict: not approved', 'Verdict: unchanged']) assert.equal(verdict(line), undefined, line);
+  const result = (line) => parseReport(report({ Evidence: line })).markers.result;
+  assert.deepEqual(['Result: passed', 'Result: **pass**', 'Result: passes', 'Result: failed', 'Result: fails', 'Result: FAIL'].map(result), ['pass', 'pass', 'pass', 'fail', 'fail', 'fail']);
+  assert.equal(result('Result: passable'), undefined);
+  const sensitive = (line) => parseReport(report({ Evidence: line })).markers.sensitive;
+  assert.deepEqual(['Sensitive change: No.', 'Sensitive change: **yes**', 'Sensitive change: none'].map(sensitive), ['no', 'yes', undefined]);
+});
+
+test('"Policy exception: none" is not an exception', () => {
+  for (const none of ['Policy exception: none', '- Policy exception: None.', 'Policy exception: n/a', 'Policy exception: no', 'Policy exception: -']) {
+    assert.deepEqual(parseReport(report({ 'Open points': none })).markers.exceptions, [], none);
+  }
+  assert.deepEqual(parseReport(report({ 'Open points': 'Policy exception: pod-x - none of the indexes can be kept' })).markers.exceptions, ['pod-x - none of the indexes can be kept']);
+});

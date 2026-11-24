@@ -58,7 +58,8 @@ async function runTests(config, dir, repoIds, round, opts = {}) {
       const step = async (key) => {
         const command = commandFor(repo[key], platform);
         if (command === 'none') return 'none';
-        if (repo.proof && repo.proof[key] === 'not-run') {
+        // "not-here" is the developer's own record at set-up. The set-up's "not-run" only means it never got that far.
+        if (repo.proof && repo.proof[key] === 'not-here') {
           result.open.push(`${repo.name}: the ${key} command is recorded as not run on this machine.`);
           return 'skipped';
         }

@@ -31,13 +31,20 @@ function runShell(command, opts = {}) {
     const out = { code: 1, stdout: '', stderr: '', timedOut: false };
     const child = spawn(command, { cwd: opts.cwd, env: opts.env, shell: true, windowsHide: true, detached: process.platform !== 'win32' });
     const timer = opts.timeoutMs ? setTimeout(() => { out.timedOut = true; killTree(child.pid); }, opts.timeoutMs) : null;
-    const done = () => { clearTimeout(timer); resolve(out); };
+    let grace = null;
+    const done = () => { clearTimeout(timer); clearTimeout(grace); resolve(out); };
     for (const name of ['stdout', 'stderr']) {
       child[name].setEncoding('utf8');
       child[name].on('data', (chunk) => { out[name] += chunk; });
     }
     child.on('error', (e) => { out.stderr = out.stderr || String(e.message); done(); });
-    child.on('close', (code) => { out.code = typeof code === 'number' && !out.timedOut ? code : 1; done(); });
+    // The command is over when its process ends. A process it left behind (a build server, a daemon) can keep
+    // the output pipe open for minutes, so the pipe gets a second to drain and is then let go.
+    child.on('exit', (code) => {
+      out.code = typeof code === 'number' && !out.timedOut ? code : 1;
+      grace = setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); done(); }, 1000);
+    });
+    child.on('close', done);
   });
 }
 

@@ -263,3 +263,17 @@ test('writeBrief puts the brief beside the report it asks for', () => {
   assert.equal(file, path.join(f.dir, 'build', 'backend-2-r2.brief.md'));
   assert.equal(fs.readFileSync(file, 'utf8'), 'text');
 });
+
+test('a command recorded as not running on this machine is marked in the brief', () => {
+  const f = fixture();
+  f.config.repos[0].proof = { build: 'pass', test: 'not-here' };
+  const repo = section(renderBrief('build', f.ctx({ entry: f.entries[0] })), 'Repo');
+  assert.match(repo, /- Test: `dotnet test App\.slnx --windows` \(recorded as not running on this machine: do not run it\)/);
+  assert.match(repo, /- Build: `dotnet build App\.slnx`\n/);
+});
+
+test('a Build brief says that a note in which the developer allows it is the yes', () => {
+  const f = fixture();
+  const part = section(renderBrief('build', f.ctx({ entry: f.entries[1] })), 'Your part');
+  assert.ok(part.includes('A note under Task in which the developer allows it is that yes.'));
+});

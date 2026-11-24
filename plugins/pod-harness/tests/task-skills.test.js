@@ -142,3 +142,25 @@ test('plugin.json is at 0.2.0 and the marketplace describes running tasks', () =
   const market = JSON.parse(fs.readFileSync(path.join(pluginRoot, '..', '..', '.claude-plugin', 'marketplace.json'), 'utf8'));
   assert.match(market.plugins.find((p) => p.name === 'pod-harness').description, /task/i);
 });
+
+test('task waits for agents to finish, not to start, and handles a wait it cannot time', () => {
+  const text = skill('task');
+  assert.match(text, /has finished, not only started/);
+  assert.match(text, /`wait`[^\n]*`message`/);
+  assert.match(text, /after a minute/);
+});
+
+test('task passes a change note in a form both shells accept, and quotes a name', () => {
+  const text = skill('task');
+  assert.ok(text.includes('"@<full path of the note>"'));
+  assert.ok(text.includes('--name "<short name>"'));
+  assert.match(text, /`dir`/);
+  assert.ok(skill('setup').includes('"@<file>"'));
+});
+
+test('setup records only the command that does not run, as the developer\'s choice', () => {
+  const step = setupStep(6);
+  assert.match(step, /"not-here"/);
+  assert.equal(step.includes('"proof":{"build":"not-run","test":"not-run"'), false);
+  assert.match(step, /only the command that does not run/);
+});

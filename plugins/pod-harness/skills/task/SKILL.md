@@ -48,16 +48,16 @@ If `next` later prints a `fix` that says Plan mode is on, tell the developer to 
 
 ## 2. Start
 
-Run one of these. Use `--item` when the request names a work item, otherwise `--name` with a few words. Give `--repo` and `--place` once for each one you found.
+Run one of these. Use `--item` when the request names a work item, otherwise `--name` with a few words in quotes. Give `--repo` and `--place` once for each one you found.
 
 ```
 node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" start --item <id> --predict <trivial|small|full> --repo <name> --place <path in the repo> --session ${CLAUDE_SESSION_ID}
-node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" start --name <short name> --predict <trivial|small|full> --repo <name> --place <path in the repo> --session ${CLAUDE_SESSION_ID}
+node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" start --name "<short name>" --predict <trivial|small|full> --repo <name> --place <path in the repo> --session ${CLAUDE_SESSION_ID}
 ```
 
 - `problems`: nothing was started. Show each problem with its `fix` and offer to run that set-up step now. Then run `start` again.
 - `reason`: the script changed your prediction. Tell the developer in one line.
-- Otherwise it prints `id`, `request_file` and `item_file`.
+- Otherwise it prints `id`, `dir` (the task folder), `request_file` and `item_file`.
 
 Then write the request to `request_file`, under three headings: What is asked, Where, Done when.
 
@@ -75,9 +75,9 @@ If the output has a `note`, show it once.
 
 | `action.type` | What you do |
 | --- | --- |
-| `dispatch` | Take the waves in order. For one wave, make one Agent call per entry, all in one message: `subagent_type` is the entry's `agent`, `model` is its `model`, `effort` is its `effort` when it has one, and `prompt` is its `prompt` exactly as given. When the whole wave has returned, start the next wave. After the last wave, run `next` again. |
+| `dispatch` | Take the waves in order. For one wave, make one Agent call per entry, all in one message: `subagent_type` is the entry's `agent`, `model` is its `model`, `effort` is its `effort` when it has one, and `prompt` is its `prompt` exactly as given. Then wait until every agent of the wave has finished, not only started: an Agent call can return while its agent still works, and you are told when it finishes. Only then start the next wave. After the last wave has finished, run `next` again. |
 | `run` | Run `command` in the background. When it ends, run `next` again. |
-| `wait` | Say the tests are still running. When they end, run `next` again. |
+| `wait` | Show `message`. Something is still running: the tests, or agents. Run `next` again when it has finished. If you cannot tell when that is, run `next` again after a minute. |
 | `ask` | Raise the checkpoint, as below. |
 | `fix` | Show each problem with its `fix`. When the developer has fixed it, run `next` again. |
 | `end` | Show `lines`. The task is over for this version: stop. |
@@ -91,7 +91,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" answer <id> <checkpoint> <continue|
 ```
 
 - "Continue" is `continue`. Run `next` again.
-- "Continue with a change" is `change`. Take the developer's own words. If they gave none, ask once, in one line. Write them to a new note file in the task folder, such as `change-1.md`, and add `@<file>` to the command. Run `next` again.
+- "Continue with a change" is `change`. Take the developer's own words. If they gave none, ask once, in one line. Write them to a new note file in the task folder (`dir` in what `next` prints), such as `change-1.md`. Add the note to the command as `"@<full path of the note>"`, with the quotes: both shells accept that form. Run `next` again.
 - "Stop here" is `stop`. Do not run `next`. Say that `/pod-harness:resume <id>` continues the task.
 
 ### Asking nothing

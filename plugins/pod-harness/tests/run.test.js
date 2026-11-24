@@ -51,3 +51,25 @@ test('a timed-out command leaves no child running', async () => {
   for (let i = 0; i < 50 && alive(childPid); i++) await sleep(100);
   assert.equal(alive(childPid), false, 'the child of the timed-out command is still running');
 });
+
+test('a command that leaves a process holding its output still ends when the command ends', async () => {
+  const dir = tempDir();
+  const pidFile = path.join(dir, 'pid.txt');
+  const script = path.join(dir, 'leaves-a-server.js');
+  // Like a build that starts a compile server: the child inherits the output pipe and outlives its parent.
+  fs.writeFileSync(script, [
+    'const { spawn } = require("node:child_process");',
+    'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "inherit", detached: true });',
+    `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+    'child.unref();',
+    'console.log("built");',
+  ].join('\n'));
+  const started = Date.now();
+  const r = await runShell(`node "${script}"`, { timeoutMs: 60000 });
+  const took = Date.now() - started;
+  try {
+    process.kill(Number(fs.readFileSync(pidFile, 'utf8')));
+  } catch { /* already gone */ }
+  assert.deepEqual([r.code, r.timedOut, r.stdout.trim()], [0, false, 'built']);
+  assert.ok(took < 15000, `runShell waited ${took} ms for a process it did not start`);
+});

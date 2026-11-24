@@ -179,3 +179,22 @@ test('the test command does not start while a run is in flight', async () => {
   const r = await taskCli(h, 'test', '6');
   assert.deepEqual([r.code, r.out.error.code, readState(dir).round.test], [1, 'tests-running', 0]);
 });
+
+test('start refuses words left over from a name that was not quoted', async () => {
+  const h = podHome();
+  const r = await taskCli(h, 'start', '--name', 'fix', 'the', 'vat', 'label', '--predict', 'small');
+  assert.deepEqual([r.code, r.out.error.code], [1, 'bad-argument']);
+  assert.match(r.out.error.message, /quotes/);
+  assert.deepEqual((await taskCli(h, 'status')).out, { tasks: [] });
+  assert.equal((await taskCli(h, 'start', '--name', 'fix the vat label', '--predict', 'small')).out.id, '2026-11-24-fix-the-vat-label');
+});
+
+test('the test command keeps what another command wrote to the state while the tests ran', async () => {
+  const h = podHome();
+  const state = path.join(h.work, '7', 'state.json').replace(/\\/g, '/');
+  // The repo's own test command switches the task to quiet, as "quiet on" in another window would.
+  const flip = `node -e "const f='${state}';const fs=require('fs');const s=JSON.parse(fs.readFileSync(f));s.quiet=true;fs.writeFileSync(f,JSON.stringify(s))"`;
+  const dir = await atTestReady(h, '7', { test: flip });
+  assert.equal((await taskCli(h, 'test', '7')).out.result, 'pass');
+  assert.deepEqual([readState(dir).quiet, readState(dir).step, readState(dir).round.test], [true, 'ran', 1]);
+});
