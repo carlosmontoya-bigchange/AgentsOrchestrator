@@ -30,6 +30,8 @@ The request: $ARGUMENTS
 
 If the request starts with `resume ` and a task id, a task is already running. Skip Plan mode, Intake and Start, and go to the Loop with that id.
 
+If words follow the task id, they are the developer's answer. When the task shows a question, or is `blocked`, send them as the change note without asking again.
+
 ## Plan mode
 
 If Claude's Plan mode is on, run nothing that writes: no `start`, no file. Do the Intake step, then present the restated request and the path you predict through Claude's own plan approval. Go on to Start only after the developer approves the plan.
@@ -80,11 +82,11 @@ If the output has a `note`, show it once.
 | `wait` | Show `message`. Something is still running: the tests, or agents. Run `next` again when it has finished. If you cannot tell when that is, run `next` again after a minute. |
 | `ask` | Raise the checkpoint, as below. |
 | `fix` | Show each problem with its `fix`. When the developer has fixed it, run `next` again. |
-| `end` | Show `lines`. The task is over for this version: stop. |
+| `end` | Show `lines`. With the status `done` the task is over: stop. With the status `blocked` the task waits for the developer: see "A blocked task" below. |
 
 ### A checkpoint
 
-Raise one question with the question dialog: `header`, `question` and the three `options`, exactly as given. Then run:
+Print `summary` exactly as given: it is markdown. Then raise one question with the question dialog: `header`, `question` and the `options`, exactly as given. There are two or three options. Then run:
 
 ```
 node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" answer <id> <checkpoint> <continue|change|stop>
@@ -93,6 +95,18 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" answer <id> <checkpoint> <continue|
 - "Continue" is `continue`. Run `next` again.
 - "Continue with a change" is `change`. Take the developer's own words. If they gave none, ask once, in one line. Write them to a new note file in the task folder (`dir` in what `next` prints), such as `change-1.md`. Add the note to the command as `"@<full path of the note>"`, with the quotes: both shells accept that form. Run `next` again.
 - "Stop here" is `stop`. Do not run `next`. Say that `/pod-harness:resume <id>` continues the task.
+
+An option that is not offered is never sent. A "Needs you" question is the task saying it cannot go on by itself: it shows why, and what the agents ask.
+
+### A blocked task
+
+A task is `blocked` when it needs the developer and nothing may be asked, as under Bypass permissions. Show `lines`: they say why it stopped. Do not guess an answer. When the developer says what should happen, write their words to a new note file in the task folder and run:
+
+```
+node "${CLAUDE_PLUGIN_ROOT}/scripts/task.js" answer <id> needs_you change "@<full path of the note>"
+```
+
+Then run `next` again: the stage that stopped runs again with the note.
 
 ### Asking nothing
 

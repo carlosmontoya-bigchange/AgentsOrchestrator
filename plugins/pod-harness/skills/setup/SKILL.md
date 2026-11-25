@@ -132,19 +132,19 @@ For each repo that has a path, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" 
 - `missing_env`: name the variables that are not set. Never ask for their values. The developer sets them and you run `prove` again.
 - `fail`: show the end of `tail`. Offer two choices: correct the command (store it with `set <layer> Repos`, then `prove` again), or record that it does not run on this machine. Record only the command that does not run, with the value `"not-here"`:
   `set personal Repos '[{"id":"<id>","proof":{"test":"not-here","at":"<time now, ISO>"}}]'` (use `"build"` for the build command, and both when neither runs here).
-  The Test stage of a task then skips that command and lists it as an open point. `not-run` is not that record: it only says the set-up did not get as far as running the command, and a task will run it.
+  The Test stage of a task then skips that command and says so at the Review checkpoint. `not-run` is not that record: it only says the set-up did not get as far as running the command, and a task will run it.
 - `not-run` from a timeout: the command took more than ten minutes. Offer the same record and say so.
 
 ### 7. Permissions
 
 This step offers rules for the developer's own Claude Code settings. Write a rule only on a yes: use the `update-config` skill if this session has it, otherwise show the rules for the developer to add by hand. Add nothing else.
 
-- **Allow rules.** Offer to allow the build and test commands that passed in step 6, so agents are not stopped by a permission prompt on every run (proposed: yes). List the exact commands the rules would allow. If nothing was proven, offer none.
+- **Allow rules.** Offer to allow the build and test commands that passed in step 6, so agents are not stopped by a permission prompt on every run (proposed: yes). List the exact commands the rules would allow. If nothing was proven, offer none. A rule in your user settings holds at once. A rule in a project settings file that did not exist before holds from the next session.
 - **The pod's rules.** Run `show` and read `delivery.never` and `delivery.always_ask`. If both are empty, say nothing about them. Otherwise list them and offer to add them (proposed: yes): `delivery.never` as deny rules, `delivery.always_ask` as ask rules. Before you write one, say that both hold in every permission mode, Bypass permissions included: a "never" rule blocks the action, and an "always ask" rule shows Claude's own prompt.
 
 ### 8. Trivial paths
 
-A change that touches a "never trivial" path always takes the full route. Run `show` and read `trivial.never`. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" trivial-count` and show its counts in a table: how many tracked files each glob matches in each repo. Say that globs ignore case, so `**/migrations/**` also matches a `Migrations` folder. Ask whether to add or remove globs (proposed: keep them). To change the list, store the whole new list: `set <layer> Trivial '{"never":["<glob>","<glob>"]}'`.
+A change that touches a "never trivial" path always takes the full route. Run `show` and read `trivial.never`. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" trivial-count` and show its counts in a table: how many tracked files each glob matches in each repo. Show only the globs that match at least one file, and say in one line how many globs match nothing. Say that globs ignore case, so `**/migrations/**` also matches a `Migrations` folder. Ask whether to add or remove globs (proposed: keep them). To change the list, store the whole new list: `set <layer> Trivial '{"never":["<glob>","<glob>"]}'`.
 
 ### 9. Policies
 

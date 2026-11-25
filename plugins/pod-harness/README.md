@@ -2,7 +2,7 @@
 
 A Claude Code plugin that gives a pod one way of working with Claude Code. A guided set-up collects the pod's repos, build and test commands, policies and stage checkpoints, and stores them on your machine. A pod lead can export that set-up as one file for the team. `/pod-harness:task` then runs a task through the pod's stages with that set-up.
 
-This is version 0.2: the set-up, and a task from intake to review. Design, planning and delivery come in later versions.
+This is version 0.2.1: the set-up, and a task from intake to review. Design, planning and delivery come in later versions.
 
 ## Install
 
@@ -37,7 +37,7 @@ The harness has no approval switch of its own, and it never asks you to type an 
 - Manual and Accept edits: every checkpoint is asked. Auto: only when there is something to decide. Plan: Claude's own plan approval. Bypass permissions: nothing is asked, and it is logged.
 - A pod that needs a hard rule lists it under `Delivery` as `never` or `always_ask`, in Claude Code's permission rule syntax. The set-up offers to add those rules to your own Claude Code settings, where they hold in every mode.
 
-Three more checkpoints always exist: a task that grew, a stage that used its budget, and something a policy needs your yes for. If the mode cannot be read, every checkpoint is asked. You can tell the session to ask nothing for one task. Every checkpoint, asked or not, is written to the task's `approvals.log`.
+Four more checkpoints always exist: a task that grew, a stage that used its budget, something a policy needs your yes for, and a task that cannot go on by itself ("Needs you"). If the mode cannot be read, every checkpoint is asked. You can tell the session to ask nothing for one task. Every checkpoint, asked or not, is written to the task's `approvals.log`.
 
 ## How a task runs
 
@@ -55,7 +55,10 @@ Three more checkpoints always exist: a task that grew, a stage that used its bud
 - **The fast path.** A trivial change skips Understand: one specialist, the tests, and the Reviewer on a cheaper model. After Build a script measures the change. More than the pod's limits (by default 3 product files, 50 product lines, 150 test lines), a "never trivial" path or a sensitive change moves the task to the full path, and you are told why.
 - **The branch.** Build works in the repo's own folder on a branch named by the pod (`task/{id}` by default), cut from the fetched trunk. It will not start on uncommitted changes that sit on another branch. In this version the work stays uncommitted on that branch: you commit, push and open the pull request yourself.
 - **The task folder.** Everything is in `<work folder>/<task id>/`: the request, `state.json`, the work order, one brief and one report per agent, a `stage-report.md` per stage, the test result, `approvals.log` and `task.md`, the running summary. You can clear the session between stages: `/pod-harness:resume` continues from these files.
-- **Loops.** Failing tests go back to Build twice, then once to the Orchestrator for a new plan. A review that asks for changes goes back to Build twice. After that the task is `blocked`: it stops, names the evidence, and you take over. A blocked task cannot be started again in this version.
+- **Loops.** Failing tests go back to Build twice, then once to the Orchestrator for a new plan. A review that asks for changes goes back to Build twice. After that the task asks you ("Needs you") and names the evidence. Your answer, in your own words, runs the stage again with a fresh set of rounds.
+- **Questions and notes.** An agent's report keeps two lists apart: questions, which only you can decide, and notes for later. Only a question makes Auto ask. A checkpoint is a short summary followed by a one-line question; the full report stays in the task folder.
+- **Needs you.** When a task cannot go on by itself, it asks: the Orchestrator or a Build agent needs a decision, Build changed nothing, or a loop is used up. Where nothing may be asked, as under Bypass permissions, the task waits as `blocked`, and `/pod-harness:resume <id>` with what should happen starts it again. Nothing is guessed.
+- **Permission prompts.** Agents take the permission mode of your session. The harness sets none of its own.
 - **The commands of a repo** run as you would type them, through `cmd.exe` on Windows and `/bin/sh` elsewhere, with a limit of 30 minutes for each.
 - **The hook.** The plugin has one hook. On a prompt, on an agent starting and on an agent finishing it writes the permission mode Claude reports to the task's `mode.json`, so a checkpoint knows how much to ask. After a compaction it reminds the session which task it was on. It never blocks anything, and in a session with no pod-harness task it does nothing.
 
