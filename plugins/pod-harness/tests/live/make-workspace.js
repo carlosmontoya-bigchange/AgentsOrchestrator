@@ -21,15 +21,22 @@ function makeWorkspace(dir) {
     makeRepo(dir, 'app', {
       remote: 'https://dev.azure.com/example/p/_git/app',
       trunk: 'main',
-      files: { 'App.slnx': '<Solution />\n', 'src/App.cs': '// placeholder\n', 'db/001_init.sql': '-- placeholder\n' },
+      files: {
+        'App.slnx': '<Solution />\n',
+        'src/App.cs': '// placeholder\n',
+        // A real table: "add an index for the init table" can then be built without a question.
+        'db/001_init.sql': '-- The first table of the app.\nCREATE TABLE dbo.Customer (\n    CustomerId INT NOT NULL PRIMARY KEY,\n    Email NVARCHAR(256) NOT NULL,\n    CreatedAt DATETIME2 NOT NULL\n);\n',
+      },
     }),
     makeRepo(dir, 'web', {
       remote: 'git@github.com:example/web.git',
       trunk: 'main',
       files: {
         'package.json': pkg('web', { build: 'node -e ""', test: 'node --test' }),
+        // The lock file says "pnpm" to the set-up. The first pnpm run rewrites it, so git ignores it here:
+        // tracked, it left the repo dirty on main and a task refused to start.
         'pnpm-lock.yaml': '',
-        '.gitignore': 'node_modules/\n', // running the commands leaves it behind; it is not the task's change
+        '.gitignore': 'node_modules/\npnpm-lock.yaml\n', // what running the commands leaves behind is not the task's change
         'src/app.tsx': '// placeholder\n',
         'src/greeting.js': '\'use strict\';\n\nfunction greeting() {\n  return \'hello\';\n}\n\nmodule.exports = { greeting };\n',
         'tests/greeting.test.js': '\'use strict\';\nconst test = require(\'node:test\');\nconst assert = require(\'node:assert/strict\');\nconst { greeting } = require(\'../src/greeting.js\');\n\ntest(\'the greeting\', () => assert.equal(greeting(), \'hello\'));\n',
