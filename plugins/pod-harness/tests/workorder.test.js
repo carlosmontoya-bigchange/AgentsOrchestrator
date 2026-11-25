@@ -10,7 +10,7 @@ const wo = require('../scripts/lib/workorder.js');
 const example = (change = {}) => ({
   format: 1, size: 'S', summary: 'Add a stock line type to the quote export.', repos: [APP],
   agents: [{ stage: 'build', agent: 'backend', repo: APP, job: 'Add the line type to QuoteExport and its unit tests.', effort: 'medium', read: ['src/Quotes/QuoteExport.cs:40-90'] }],
-  checks: [], risks: [], open_points: [], debate: false, ...change,
+  checks: [], risks: [], questions: [], debate: false, ...change,
 });
 const agent = (name, repo = APP, extra = {}) => ({ stage: 'build', agent: name, repo, job: 'Do the job.', ...extra });
 const config = () => podConfig(podHome());
@@ -71,15 +71,32 @@ test('size trivial is refused from an agent and accepted from the script', () =>
 });
 
 test('the summary, the format and the lists are checked', () => {
-  const problems = wo.validateWorkOrder(example({ format: 2, summary: 'x'.repeat(201), agents: [], checks: 'run it', risks: [7], open_points: null }), config());
+  const problems = wo.validateWorkOrder(example({ format: 2, summary: 'x'.repeat(201), agents: [], checks: 'run it', risks: [7], questions: null }), config());
   assert.deepEqual(problems, [
     'The format must be 1.',
     'The summary must be one sentence of at most 200 characters.',
-    'The work order names no Build agent.',
+    'The work order names no Build agent and asks no question.',
     '"checks" must be a list of sentences.',
     '"risks" must be a list of sentences.',
-    '"open_points" must be a list of sentences.',
+    '"questions" must be a list of sentences.',
   ]);
+});
+
+test('a work order with questions may name no Build agent', () => {
+  assert.deepEqual(wo.validateWorkOrder(example({ agents: [], questions: ['Which table should the index cover?'] }), config()), []);
+  assert.deepEqual(wo.validateWorkOrder(example({ questions: ['Should the index be unique?'] }), config()), []);
+});
+
+test('a work order with no agent and no question is refused, and a blank question does not count', () => {
+  assert.deepEqual(wo.validateWorkOrder(example({ agents: [] }), config()), ['The work order names no Build agent and asks no question.']);
+  assert.deepEqual(wo.validateWorkOrder(example({ agents: [], questions: ['  '] }), config()), ['The work order names no Build agent and asks no question.']);
+});
+
+test('open_points is not a field any more', () => {
+  const old = example();
+  delete old.questions;
+  old.open_points = [];
+  assert.deepEqual(wo.validateWorkOrder(old, config()), ['"questions" must be a list of sentences.']);
 });
 
 test('keys number the repeats', () => {
@@ -109,6 +126,7 @@ test('the fast order has one Build agent for the place', () => {
   assert.deepEqual([order.size, order.repos, order.agents.length, order.agents[0].agent, order.agents[0].repo, order.agents[0].read],
     ['trivial', [APP], 1, 'database', APP, ['db/fix.sql', 'src/a.cs']]);
   assert.equal(order.agents[0].job, 'Make the change in the request, with its automated tests.');
+  assert.deepEqual([order.questions, 'open_points' in order], [[], false]);
   assert.deepEqual(wo.validateWorkOrder(order, c, { script: true }), []);
 });
 

@@ -52,7 +52,9 @@ function validateWorkOrder(order, config, opts = {}) {
   }
 
   const agents = Array.isArray(order.agents) ? order.agents : [];
-  if (agents.length === 0) problems.push('The work order names no Build agent.');
+  // No agent is right when nothing can be built until a person answers: the questions then say what is missing.
+  const asks = sentences(order.questions) && order.questions.some(filled);
+  if (agents.length === 0 && !asks) problems.push('The work order names no Build agent and asks no question.');
   agents.forEach((a, i) => {
     const at = `Agent ${i + 1}`;
     if (!isObject(a)) {
@@ -75,7 +77,7 @@ function validateWorkOrder(order, config, opts = {}) {
       if (count > teams.max_same_kind) problems.push(`The work order has ${count} ${kind} agents. This pod allows ${teams.max_same_kind} of one kind.`);
     }
   }
-  for (const key of ['checks', 'risks', 'open_points']) {
+  for (const key of ['checks', 'risks', 'questions']) {
     if (!sentences(order[key])) problems.push(`"${key}" must be a list of sentences.`);
   }
   return problems;
@@ -110,7 +112,7 @@ function fastOrder(repo, places) {
   return {
     format: 1, size: 'trivial', summary: `A trivial change in ${repo.name}.`, repos: [repo.id],
     agents: [{ stage: 'build', agent: specialistFor(repo, places[0]), repo: repo.id, job: 'Make the change in the request, with its automated tests.', read: places }],
-    checks: [], risks: [], open_points: [], debate: false,
+    checks: [], risks: [], questions: [], debate: false,
   };
 }
 
