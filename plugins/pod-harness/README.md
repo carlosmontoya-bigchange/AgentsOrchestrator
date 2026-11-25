@@ -8,7 +8,7 @@ This is version 0.2: the set-up, and a task from intake to review. Design, plann
 
 In Claude Code:
 
-1. `/plugin marketplace add carlosmontoya-bigchange/AgentsOrchestrator` (a private repo: your git must be able to clone it)
+1. `/plugin marketplace add carlosmontoya-bigchange/AgentsOrchestrator` (a public repo: you need no access to it)
 2. `/plugin install pod-harness@agents-orchestrator`
 3. `/reload-plugins`
 

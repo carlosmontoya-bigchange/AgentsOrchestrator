@@ -12,7 +12,7 @@ In Claude Code:
 2. `/plugin install <plugin>@agents-orchestrator`
 3. `/reload-plugins`
 
-The repo is private, so your git must be able to clone it. To update an installed plugin, see its README.
+The repo is public, so you need no access to it. To update an installed plugin, see its README.
 
 The midas-sdlc plugin was retired on 2026-11-23 and is no longer listed. If you still have it installed, remove it: `/plugin uninstall midas-sdlc@agents-orchestrator`.
 
