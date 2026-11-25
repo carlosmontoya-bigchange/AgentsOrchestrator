@@ -44,7 +44,8 @@ function podRules(kind, ctx, policies) {
       'Your report:',
       `- Markdown, in the language "${reports.language || 'en'}", with these \`##\` headings in this order: ${HEADINGS.join(', ')}.`,
       `- Summary: five lines at most. The whole report: ${lineLimit(ctx.config, ctx.model)} lines at most.`,
-      '- Open points: only what a person must decide or know. Write "None" when there is nothing.',
+      '- Questions: only what a person must decide for this work. One line each, written as a question. Write "None" when there is nothing.',
+      '- Notes: what a person should know later, such as a check to make by hand, or an assumption you went ahead on. Not questions. Write "None" when there is nothing.',
       '- Return your Summary and the path of your report. Nothing else.',
     );
   }
@@ -57,13 +58,13 @@ const WORK_ORDER_FORMAT = (teams) => [
   '{ "format": 1, "size": "S", "summary": "<one sentence, 200 characters at most>",',
   '  "repos": ["<repo id>"],',
   '  "agents": [ { "stage": "build", "agent": "backend", "repo": "<repo id>", "job": "<what to build, with its tests>", "effort": "medium", "read": ["<path>:<lines>"] } ],',
-  '  "checks": [], "risks": [], "open_points": [], "debate": false }',
+  '  "checks": [], "risks": [], "questions": [], "debate": false }',
   '```',
   '- size: S, M or L.',
   `- agents: Build agents only: backend, frontend or database. At most ${teams.max_agents_per_stage} agents, at most ${teams.max_same_kind} of one kind. Do not list a tester or a reviewer: the harness adds them.`,
   '- repo and repos: ids from the Repo section, exactly as written there.',
   '- effort and read are optional. effort is low, medium or high.',
-  '- checks: what a script cannot check, for the Tester. open_points: what a person must decide.',
+  '- checks: what a script cannot check, for the Tester. questions: what a person must decide. If nothing can be built until a person answers, list the questions and leave "agents" empty.',
 ];
 
 const CONTEXT_FORMAT = [
@@ -79,7 +80,7 @@ function yourPart(kind, ctx, policies, agent) {
   if (policies.own.length) out.push('Policies for your work:', ...policies.own.map((p) => policyLine(p, agent === 'reviewer')), '');
   if (policies.ask.length) {
     out.push('Needs the developer\'s yes first:', ...policies.ask.map((p) => policyLine(p)),
-      'If your job would do what one of these covers, do not do it. Write `Policy exception: <id> - <what you would do>` under Open points.',
+      'If your job would do what one of these covers, do not do it. Write `Policy exception: <id> - <what you would do>` under Questions.',
       'A note under Task in which the developer allows it is that yes.', '');
   }
   const skills = records((ctx.config.skills || {})[agent]);
@@ -156,7 +157,8 @@ function taskSection(kind, ctx, stage, key) {
     const { entry } = ctx;
     const repo = (state.repos || {})[entry.repo] || {};
     out.push(`Your job: ${entry.job}`, ...list('Start by reading:', records(entry.read).map(tick)),
-      `You are on branch ${repo.branch}. Do not commit, push, switch branches or touch another repo.`, ...notes);
+      `You are on branch ${repo.branch}. Do not commit, push, switch branches or touch another repo.`,
+      'If you cannot do the job without a decision from a person, change nothing and put the decision under Questions.', ...notes);
     if (records(inputs.reports).length) out.push(...list('This is a return to Build. Read this and fix what it names:', inputs.reports.map(tick)));
   }
 

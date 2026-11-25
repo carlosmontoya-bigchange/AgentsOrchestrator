@@ -1,31 +1,34 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { HEADINGS, parseReport, lineLimit, joinStageReport } = require('../scripts/lib/report.js');
+const { HEADINGS, parseReport, lineLimit, joinStageReport, unique, stagePoints } = require('../scripts/lib/report.js');
 
 // A report with every heading. parts replaces the body of a heading.
 function report(parts = {}) {
   const body = {
     Summary: 'Added the line type.\nTests pass.', Did: '- Edited QuoteExport.', Found: 'Nothing unexpected.',
-    'Changed files': '- src/Quotes/QuoteExport.cs', Evidence: 'dotnet test: 12 passed.', 'Open points': 'None', Next: 'Test.', ...parts,
+    'Changed files': '- src/Quotes/QuoteExport.cs', Evidence: 'dotnet test: 12 passed.', Questions: 'None', Notes: 'None', Next: 'Test.', ...parts,
   };
   return HEADINGS.map((h) => `## ${h}\n\n${body[h]}\n`).join('\n');
 }
 
-test('there are seven headings, in the order the design gives', () => {
-  assert.deepEqual(HEADINGS, ['Summary', 'Did', 'Found', 'Changed files', 'Evidence', 'Open points', 'Next']);
+test('there are eight headings: questions and notes take the place of open points', () => {
+  assert.deepEqual(HEADINGS, ['Summary', 'Did', 'Found', 'Changed files', 'Evidence', 'Questions', 'Notes', 'Next']);
 });
 
-test('a full report parses: summary, open points and the three markers', () => {
+test('a full report parses: summary, questions, notes and the three markers', () => {
   const r = parseReport(report({
     Evidence: 'Sensitive change: no\nResult: pass\nVerdict: approve',
-    'Open points': '- The label text is not agreed.\n- Ask the product owner about rounding.',
+    Questions: '- Should the index be unique?\n- Which label text do you want?',
+    Notes: '- Run the script once on a scratch database.',
   }));
   assert.deepEqual(r.summary, ['Added the line type.', 'Tests pass.']);
-  assert.deepEqual(r.openPoints, ['The label text is not agreed.', 'Ask the product owner about rounding.']);
+  assert.deepEqual(r.questions, ['Should the index be unique?', 'Which label text do you want?']);
+  assert.deepEqual(r.notes, ['Run the script once on a scratch database.']);
+  assert.equal('openPoints' in r, false);
   assert.deepEqual(r.markers, { sensitive: 'no', result: 'pass', verdict: 'approve', exceptions: [] });
   assert.deepEqual(r.problems, []);
-  assert.equal(r.lines, report({ Evidence: 'a\nb\nc', 'Open points': 'a\nb' }).trimEnd().split('\n').length);
+  assert.equal(r.lines, report({ Evidence: 'a\nb\nc', Questions: 'a\nb', Notes: 'c' }).trimEnd().split('\n').length);
 });
 
 test('markers are read without regard to case and only at the start of a line', () => {
@@ -42,30 +45,67 @@ test('a marker written twice with two answers is read as the careful one', () =>
   assert.equal(parseReport(report({ Did: 'Sensitive change: no', Evidence: 'Sensitive change: yes' })).markers.sensitive, 'yes');
 });
 
-test('two policy exceptions are both collected', () => {
-  const r = parseReport(report({ 'Open points': '- Policy exception: pod-db - the migration needs a full table scan\nPolicy exception: pod-flags - a flag is removed' }));
+test('two policy exceptions are both collected, and neither is a question', () => {
+  const r = parseReport(report({ Questions: '- Policy exception: pod-db - the migration needs a full table scan\nPolicy exception: pod-flags - a flag is removed\n- Which table?' }));
   assert.deepEqual(r.markers.exceptions, ['pod-db - the migration needs a full table scan', 'pod-flags - a flag is removed']);
-  assert.equal(r.openPoints.length, 2);
+  assert.deepEqual(r.questions, ['Which table?']);
 });
 
 test('a missing heading and a six-line summary are problems', () => {
   const text = report({ Summary: '1\n2\n3\n4\n5\n6' }).replace('## Evidence', '## Proof');
   assert.deepEqual(parseReport(text).problems, ['The report has no "## Evidence" heading.', 'The Summary has 6 lines. Five at most.']);
-  assert.equal(parseReport('just some text').problems.length, 7);
+  assert.equal(parseReport('just some text').problems.length, 8);
   assert.deepEqual(parseReport('').summary, []);
 });
 
-test('"None" under Open points means no open point', () => {
-  for (const none of ['None', 'none.', '-', 'n/a', '- None', '']) assert.deepEqual(parseReport(report({ 'Open points': none })).openPoints, [], none);
+test('"none" in the forms a model writes it means nothing, for questions and for notes', () => {
+  for (const none of ['None', 'none.', 'N/A', '-', '- None', '', 'Nothing.', 'None. Risk noted in the work order.', 'Nothing to decide: the request is clear.', 'No questions.', 'None at this time.',
+    'None identified.', 'None found.', '*None*', '_None._', '**None.**', '(none)', 'No.']) {
+    const r = parseReport(report({ Questions: none, Notes: none }));
+    assert.deepEqual([r.questions, r.notes], [[], []], none);
+  }
+  for (const real of ['None of the tests cover the index.', 'Nothing was run against a database.', 'No migration is needed for this change.']) {
+    assert.deepEqual(parseReport(report({ Questions: real })).questions, [real], real);
+  }
+});
+
+test('a line that starts with "none" and then asks is a question: it is never dropped', () => {
+  for (const real of ['None, but should the index be unique?', 'None; should we also drop the old column?', 'Nothing blocks this. Should the label change too?']) {
+    assert.deepEqual(parseReport(report({ Questions: real })).questions, [real], real);
+  }
 });
 
 test('headings are found whatever their case, and text under an unknown heading is not lost into the next', () => {
-  const r = parseReport('## SUMMARY\nShort.\n## Notes\nLong text.\n## open points\n- One.\n');
-  assert.deepEqual([r.summary, r.openPoints], [['Short.'], ['One.']]);
+  const r = parseReport('## SUMMARY\nShort.\n## Other\nLong text.\n## questions\n- One?\n## NOTES\n- A note.\n');
+  assert.deepEqual([r.summary, r.questions, r.notes], [['Short.'], ['One?'], ['A note.']]);
 });
 
-test('the stage report lists agents, open points with their agent, report problems and what is next', () => {
-  const good = parseReport(report({ 'Open points': '- The label text is not agreed.' }));
+test('the old Open points heading is read as questions and named as a problem', () => {
+  const old = ['## Summary', 'Done.', '## Did', '-', '## Found', '-', '## Changed files', '-', '## Evidence', '-', '## Open points', '- Which table?', '## Next', '-', ''].join('\n');
+  const r = parseReport(old);
+  assert.deepEqual([r.questions, r.notes], [['Which table?'], []]);
+  assert.deepEqual(r.problems, ['The report has no "## Questions" heading.', 'The report has no "## Notes" heading.']);
+  // With a Questions heading, an Open points section is not read at all.
+  assert.deepEqual(parseReport(report({ Questions: 'None' }) + '\n## Open points\n\n- Old habit.\n').questions, []);
+});
+
+test('unique drops the same line in another case or spacing', () => {
+  assert.deepEqual(unique(['Which table?', ' which table? ', 'Which column?', 'WHICH   TABLE?']), ['Which table?', 'Which column?']);
+  assert.deepEqual(unique([]), []);
+});
+
+test('the points of a stage are the agents\' own first, then the stage\'s, each once, with no agent name', () => {
+  const entries = [
+    { key: 'orchestrator', report: parseReport(report({ Questions: 'Which table?', Notes: 'The dialect is not stated.' })) },
+    { key: 'backend', report: null },
+  ];
+  assert.deepEqual(stagePoints(entries, ['which table?', 'Which column?'], ['A stage note.']), {
+    questions: ['Which table?', 'Which column?'], notes: ['The dialect is not stated.', 'A stage note.'],
+  });
+});
+
+test('the stage report lists agents, report problems, questions, notes and what is next', () => {
+  const good = parseReport(report({ Questions: '- Which label text do you want?', Notes: '- Check the label by hand.' }));
   const long = parseReport(report() + '\nextra\n'.repeat(60));
   const text = joinStageReport({
     id: '362525', stage: 'build', round: 2,
@@ -74,7 +114,7 @@ test('the stage report lists agents, open points with their agent, report proble
       { key: 'backend-2', agent: 'backend', model: 'sonnet', path: 'C:/w/362525/build/backend-2-r2.md', limit: 40, report: null },
       { key: 'database', agent: 'database', model: 'opus', path: 'C:/w/362525/build/database-r2.md', limit: 80, report: long },
     ],
-    facts: ['App: 2 product files, 30 lines.'], open: ['The Test stage is switched off.'], next: 'Test.',
+    facts: ['App: 2 product files, 30 lines.'], questions: ['The Test stage is switched off.'], notes: [], next: 'Test.',
   });
   const lines = text.split('\n');
   assert.equal(lines[0], '# Build report, task 362525');
@@ -84,17 +124,19 @@ test('the stage report lists agents, open points with their agent, report proble
   assert.ok(text.includes('### backend\n\nAdded the line type.\nTests pass.\n\nReport: [backend-r2.md](backend-r2.md)'));
   assert.ok(text.includes('- backend-2 wrote no report.'));
   assert.match(text, /- database: the report has \d+ lines\. The limit is 80\./);
-  assert.ok(text.includes('- backend: The label text is not agreed.\n- The Test stage is switched off.'));
+  assert.ok(text.includes('## Questions\n\n- Which label text do you want?\n- The Test stage is switched off.\n\n## Notes\n\n- Check the label by hand.\n'));
+  assert.equal(text.includes('backend: Which'), false);
+  assert.equal(text.includes('## Open points'), false);
   assert.ok(text.endsWith('## Next\n\nTest.\n'));
-  const order = ['## Agents', '## Report problems', '## Open points', '## Next'].map((h) => text.indexOf(h));
+  const order = ['## Agents', '## Report problems', '## Questions', '## Notes', '## Next'].map((h) => text.indexOf(h));
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
   assert.ok(order.every((at) => at > 0));
 });
 
 test('a stage report with no agent and nothing open says so, and has no problems section', () => {
-  const text = joinStageReport({ id: '1', stage: 'test', round: 1, entries: [], facts: ['App: build pass, test pass.'], open: [], next: 'Review.' });
+  const text = joinStageReport({ id: '1', stage: 'test', round: 1, entries: [], facts: ['App: build pass, test pass.'], questions: [], notes: [], next: 'Review.' });
   assert.ok(text.includes('Round 1. Agents: none.'));
-  assert.ok(text.includes('## Open points\n\nNone.'));
+  assert.ok(text.includes('## Questions\n\nNone.\n\n## Notes\n\nNone.\n'));
   assert.equal(text.includes('## Report problems'), false);
 });
 
@@ -117,7 +159,8 @@ test('a marker is read in the forms a model writes it', () => {
 
 test('"Policy exception: none" is not an exception', () => {
   for (const none of ['Policy exception: none', '- Policy exception: None.', 'Policy exception: n/a', 'Policy exception: no', 'Policy exception: -']) {
-    assert.deepEqual(parseReport(report({ 'Open points': none })).markers.exceptions, [], none);
+    const r = parseReport(report({ Questions: none }));
+    assert.deepEqual([r.markers.exceptions, r.questions], [[], []], none);
   }
-  assert.deepEqual(parseReport(report({ 'Open points': 'Policy exception: pod-x - none of the indexes can be kept' })).markers.exceptions, ['pod-x - none of the indexes can be kept']);
+  assert.deepEqual(parseReport(report({ Questions: 'Policy exception: pod-x - none of the indexes can be kept' })).markers.exceptions, ['pod-x - none of the indexes can be kept']);
 });

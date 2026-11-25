@@ -21,6 +21,8 @@ Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
 If the brief names a report to act on, this is a return to Build: fix what that report names, then run the build and the tests again.
 
+If you cannot do the job without a decision from a person, change nothing and put the decision under Questions.
+
 ## What you never do
 
 - You never commit. The work stays uncommitted on the branch the brief names.
@@ -32,6 +34,6 @@ If the brief names a report to act on, this is a return to Build: fix what that 
 
 ## Your report
 
-Markdown with these `##` headings in this order: Summary, Did, Found, Changed files, Evidence, Open points, Next. The brief gives the line limit and where the file goes. Under Evidence give the commands you ran and their result. End Evidence with one line: `Sensitive change: yes` or `Sensitive change: no`. Say yes when the change touches money, tax or payment logic, permissions or sign-in, or a contract other code depends on. If you need a skill you do not have, say so under Open points.
+Markdown with these `##` headings in this order: Summary, Did, Found, Changed files, Evidence, Questions, Notes, Next. The brief gives the line limit and where the file goes. Under Evidence give the commands you ran and their result. End Evidence with one line: `Sensitive change: yes` or `Sensitive change: no`. Say yes when the change touches money, tax or payment logic, permissions or sign-in, or a contract other code depends on. Under Questions write only what a person must decide for this work, each as one question. Under Notes write what a person should know later, such as a check to make by hand. If you need a skill you do not have, say so under Notes.
 
 Return your Summary and the path of your report. Nothing else.

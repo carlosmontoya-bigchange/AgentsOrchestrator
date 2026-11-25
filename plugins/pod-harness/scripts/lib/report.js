@@ -2,10 +2,27 @@
 // Reads the report an agent wrote, and joins the reports of one stage. No model is involved.
 const path = require('node:path');
 
-const HEADINGS = ['Summary', 'Did', 'Found', 'Changed files', 'Evidence', 'Open points', 'Next'];
-const NOTHING = /^(none\.?|n\/a|-)?$/i;
+// Questions: what a person must decide for this work. Notes: what a person should know later. Only questions
+// decide whether a checkpoint is asked in Auto.
+const HEADINGS = ['Summary', 'Did', 'Found', 'Changed files', 'Evidence', 'Questions', 'Notes', 'Next'];
+// "None" in the forms a model writes it: alone, or followed by punctuation and a remark. "None of the tests..."
+// is a real line and is kept: a line kept by mistake costs one question, a line dropped by mistake loses one.
+// A line that asks something is never nothing, however it starts: "None, but should the index be unique?".
+const NOTHING = /^(?:-|(?:no|none(?: (?:at this time|needed|identified|found|required|known|so far))?|nothing(?: (?:to (?:decide|note|add|report)|else|further))?|n\/a|no(?: open| further| outstanding)? (?:questions?|notes?))(?:\s*[.!:;,].*)?)?$/i;
+// The marks a model puts around the word: *None*, _None._, (none).
+const bare = (line) => line.replace(/^[\s*_(]+|[\s*_)]+$/g, '');
+const nothing = (line) => !line.includes('?') && NOTHING.test(bare(line));
 
 const item = (line) => line.trim().replace(/^[-*]\s+/, '');
+
+// Drops a line that is already there in another case or spacing. The first spelling is kept.
+function unique(list) {
+  const seen = new Set();
+  return list.filter((line) => {
+    const key = line.trim().toLowerCase().replace(/\s+/g, ' ');
+    return !seen.has(key) && seen.add(key);
+  });
+}
 
 // A marker starts its line. A list bullet, bold marks and the endings a model adds ("approved", "passed") are
 // let through: a marker that is not recognised is read as the careful answer and costs a whole loop.
@@ -51,9 +68,14 @@ function parseReport(text) {
   const summary = body('Summary');
   const problems = HEADINGS.filter((h) => !sections.has(h.toLowerCase())).map((h) => `The report has no "## ${h}" heading.`);
   if (summary.length > 5) problems.push(`The Summary has ${summary.length} lines. Five at most.`);
+  const real = (heading) => body(heading).filter((line) => !nothing(line));
+  // A model may keep the heading of the earlier version. Its lines are read as questions: the careful reading.
+  const asked = sections.has('questions') ? real('Questions') : real('Open points');
   return {
     summary,
-    openPoints: body('Open points').filter((line) => !NOTHING.test(line)),
+    // A policy exception is a marker of its own and is asked through its own checkpoint.
+    questions: asked.filter((line) => !EXCEPTION.test(line)),
+    notes: real('Notes'),
     markers,
     lines: lines.length === 1 && lines[0] === '' ? 0 : lines.length,
     problems,
@@ -68,8 +90,15 @@ function lineLimit(config, model) {
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 const title = (stage) => stage.charAt(0).toUpperCase() + stage.slice(1);
 
+// What a stage leaves for the developer: the agents' own questions and notes first, then the stage's, each once.
+// No agent name stands in front: the Agents section of the stage report says who wrote what.
+function stagePoints(entries, questions, notes) {
+  const from = (key) => entries.flatMap((e) => (e.report ? e.report[key] : []));
+  return { questions: unique([...from('questions'), ...questions]), notes: unique([...from('notes'), ...notes]) };
+}
+
 // entries: [{ key, agent, model, path, limit, report: parsed | null }]. facts come from scripts (test results, the diff).
-function joinStageReport({ id, stage, round, entries, facts, open, next }) {
+function joinStageReport({ id, stage, round, entries, facts, questions, notes, next }) {
   const out = [
     `# ${title(stage)} report, task ${id}`, '',
     `Round ${round}. Agents: ${entries.length ? entries.map((e) => `${e.key} (${e.model})`).join(', ') : 'none'}.`,
@@ -93,10 +122,11 @@ function joinStageReport({ id, stage, round, entries, facts, open, next }) {
   });
   if (problems.length) out.push('', '## Report problems', '', ...problems.map((p) => `- ${p}`));
 
-  const points = [...entries.flatMap((e) => (e.report ? e.report.openPoints.map((p) => `${e.key}: ${p}`) : [])), ...open];
-  out.push('', '## Open points', '', ...(points.length ? points.map((p) => `- ${p}`) : ['None.']));
+  const points = stagePoints(entries, questions, notes);
+  const listed = (lines) => (lines.length ? lines.map((p) => `- ${p}`) : ['None.']);
+  out.push('', '## Questions', '', ...listed(points.questions), '', '## Notes', '', ...listed(points.notes));
   out.push('', '## Next', '', next);
   return out.join('\n') + '\n';
 }
 
-module.exports = { HEADINGS, parseReport, lineLimit, joinStageReport };
+module.exports = { HEADINGS, parseReport, lineLimit, joinStageReport, unique, stagePoints };

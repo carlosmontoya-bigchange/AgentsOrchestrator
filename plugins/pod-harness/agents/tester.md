@@ -31,6 +31,6 @@ Find what failed and where. Fix nothing.
 
 ## Your report
 
-Markdown with these `##` headings in this order: Summary, Did, Found, Changed files, Evidence, Open points, Next. The brief gives the line limit and where the file goes. Under Found list each failure with its file and line. End Evidence with one line: `Result: pass` or `Result: fail`. Write pass only when nothing failed and every check held. If you need a skill you do not have, say so under Open points.
+Markdown with these `##` headings in this order: Summary, Did, Found, Changed files, Evidence, Questions, Notes, Next. The brief gives the line limit and where the file goes. Under Found list each failure with its file and line. End Evidence with one line: `Result: pass` or `Result: fail`. Write pass only when nothing failed and every check held. Under Questions write only what a person must decide for this work, each as one question. Under Notes write what a person should know later, such as a check to make by hand. If you need a skill you do not have, say so under Notes.
 
 Return your Summary and the path of your report. Nothing else.

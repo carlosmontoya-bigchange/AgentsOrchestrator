@@ -86,6 +86,17 @@ test('a finished task is left alone', () => {
   }
 });
 
+// A parked task waits for the developer. The mode must still be recorded, or it would never be asked in the
+// session that parked it.
+test('a task that waits as blocked with a question still has its mode recorded, and is named after a compaction', () => {
+  const { h, dir } = running();
+  writeState(dir, { ...readState(dir), status: 'blocked', asking: { checkpoint: 'needs_you', parked: true } });
+  assert.deepEqual(hook(h, event('UserPromptSubmit', { permission_mode: 'default' })), QUIET);
+  assert.deepEqual([readMode(dir).value, readMode(dir).event], ['default', 'UserPromptSubmit']);
+  const r = hook(h, event('SessionStart', { source: 'compact' }));
+  assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /^pod-harness task 362525 is at stage build\./);
+});
+
 test('a registered folder with no readable task is left alone', () => {
   const { h, dir } = running();
   fs.writeFileSync(path.join(dir, 'state.json'), '{ broken');

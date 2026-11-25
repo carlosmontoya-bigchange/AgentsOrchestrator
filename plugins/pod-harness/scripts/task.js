@@ -117,7 +117,10 @@ const handlers = {
     const dir = tasks.taskDir(config, f.rest[0]);
     const session = f.session || c.env.CLAUDE_CODE_SESSION_ID;
     // A stopped task runs again on this call, so its session is registered too: the hook then records for it.
-    if (!['done', 'blocked'].includes(tasks.readState(dir).status)) tasks.registerSession(c.env, session, dir);
+    // So is a blocked task that waits with a question, in case another session resumes it: the mode the hook
+    // records for the session decides when the question is asked.
+    const state = tasks.readState(dir);
+    if (state.status !== 'done' && !(state.status === 'blocked' && !state.asking)) tasks.registerSession(c.env, session, dir);
     return engine.next({ config, dir, env: c.env, platform: c.platform, pluginRoot, now: c.now, session });
   },
 

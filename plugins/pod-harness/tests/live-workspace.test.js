@@ -40,3 +40,21 @@ test('the web repo has a greeting with a test that passes, and the broken repo h
   assert.deepEqual(scripts('web'), { build: 'node -e ""', test: 'node --test' });
   assert.deepEqual(scripts('broken'), { test: 'node -e "process.exit(1)"' });
 });
+
+// The first pnpm run rewrites the lock file. A tracked one made the repo dirty on main, and a task then refused to start.
+test('a first pnpm run leaves web clean: its lock file is on disk for detection and ignored by git', () => {
+  const dir = tempDir();
+  makeWorkspace(dir);
+  const web = path.join(dir, 'web');
+  assert.ok(fs.existsSync(path.join(web, 'pnpm-lock.yaml')));
+  fs.writeFileSync(path.join(web, 'pnpm-lock.yaml'), 'lockfileVersion: \'9.0\'\n');
+  assert.equal(String(git(web, 'status', '--porcelain')).trim(), '');
+  assert.equal(String(git(web, 'ls-files', 'pnpm-lock.yaml')).trim(), '');
+  assert.equal(detectRepos(dir).find((r) => r.name === 'web').test, 'pnpm test');
+});
+
+test('the init script of app creates a table an index can be added to', () => {
+  const dir = tempDir();
+  makeWorkspace(dir);
+  assert.match(fs.readFileSync(path.join(dir, 'app', 'db', '001_init.sql'), 'utf8'), /CREATE TABLE dbo\.Customer \(/);
+});

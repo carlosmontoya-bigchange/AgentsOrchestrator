@@ -66,10 +66,17 @@ test('every agent is told to read its brief first and what to return', () => {
     if (name === 'explorer') assert.ok(body.includes('context.json') && /write no report/i.test(body), name);
     else {
       assert.ok(body.includes('your Summary and the path of your report'), name);
-      assert.ok(body.includes('If you need a skill you do not have, say so under Open points.'), name);
-      assert.ok(body.includes('Summary, Did, Found, Changed files, Evidence, Open points, Next'), name);
+      assert.ok(body.includes('If you need a skill you do not have, say so under Notes.'), name);
+      assert.ok(body.includes('Under Questions write only what a person must decide for this work, each as one question.'), name);
+      assert.equal(body.includes('Open points'), false, name);
+      assert.ok(body.includes('Summary, Did, Found, Changed files, Evidence, Questions, Notes, Next'), name);
     }
   }
+});
+
+test('a Build agent asks instead of guessing, and the Orchestrator may leave the agents empty', () => {
+  for (const name of ['backend', 'frontend', 'database']) assert.ok(agent(name).body.includes('If you cannot do the job without a decision from a person, change nothing and put the decision under Questions.'), name);
+  assert.ok(agent('orchestrator').body.includes('If nothing can be built until a person decides something, write the work order with the questions and an empty `agents` list. Do not guess.'));
 });
 
 test('each agent names its marker line', () => {

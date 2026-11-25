@@ -23,7 +23,7 @@ const ORDER = {
     { stage: 'build', agent: 'database', repo: APP, job: 'Add the column.' },
     { stage: 'build', agent: 'frontend', repo: WEB, job: 'Show the line type.' },
   ],
-  checks: ['Open the quote screen and check the label.'], risks: [], open_points: [], debate: false,
+  checks: ['Open the quote screen and check the label.'], risks: [], questions: [], debate: false,
 };
 
 // A pod with policies, skills and a repo that needs a variable, and a task at the given stage.
@@ -109,7 +109,7 @@ test('an approval policy is under "Needs the developer\'s yes first" with the ex
   assert.ok(at > 0);
   assert.ok(part.indexOf('pod-migration: A migration needs the DBA to agree.') > at);
   assert.ok(part.indexOf('pod-flags') > at);
-  assert.ok(part.includes('do not do it. Write `Policy exception: <id> - <what you would do>` under Open points.'));
+  assert.ok(part.includes('do not do it. Write `Policy exception: <id> - <what you would do>` under Questions.'));
   assert.equal(section(renderBrief('build', f.ctx({ entry: f.entries[0] })), 'Your part').includes('pod-migration'), false);
 });
 
@@ -173,7 +173,9 @@ test('the Orchestrator brief gives the Explorer\'s brief, the work order format 
   const explorerBrief = stageFile(f.dir, 'understand', 'explorer', 1, 'brief.md');
   assert.ok(section(text, 'Task').includes(`Dispatch \`pod-harness:explorer\` once, on the model \`haiku\`, with the prompt \`Read your brief at ${explorerBrief} and do what it says.\``));
   assert.ok(section(text, 'Task').includes(path.join(f.dir, 'work-order.json')));
-  assert.ok(text.includes('"agents"') && text.includes('"open_points"'));
+  assert.ok(text.includes('"agents"') && text.includes('"questions": []'));
+  assert.ok(text.includes('questions: what a person must decide. If nothing can be built until a person answers, list the questions and leave "agents" empty.'));
+  assert.equal(text.includes('open_points'), false);
   assert.ok(text.includes('At most 4 agents') && text.includes('at most 2 of one kind'));
   assert.equal(text.includes('Read it. Dispatch the Explorer again only for a place it lacks.'), false);
   fs.writeFileSync(path.join(f.dir, 'context.json'), '{}');
@@ -243,10 +245,19 @@ test('each kind is told its marker line', () => {
 test('the report rules give the headings, the line limit for the model and the language', () => {
   const f = fixture();
   const rules = (model) => section(renderBrief('reviewer', f.ctx({ model })), 'Pod rules');
-  assert.ok(rules('sonnet').includes('Summary, Did, Found, Changed files, Evidence, Open points, Next'));
+  assert.ok(rules('sonnet').includes('Summary, Did, Found, Changed files, Evidence, Questions, Notes, Next'));
+  assert.ok(rules('sonnet').includes('- Questions: only what a person must decide for this work. One line each, written as a question. Write "None" when there is nothing.'));
+  assert.ok(rules('sonnet').includes('- Notes: what a person should know later, such as a check to make by hand, or an assumption you went ahead on. Not questions. Write "None" when there is nothing.'));
+  assert.equal(rules('sonnet').includes('Open points'), false);
   assert.ok(rules('sonnet').includes('40 lines at most') && rules('opus').includes('80 lines at most'));
   assert.ok(rules('sonnet').includes('"en"'));
   assert.ok(rules('sonnet').includes('Return your Summary and the path of your report. Nothing else.'));
+});
+
+test('a Build agent is told to change nothing and ask when a decision is missing', () => {
+  const f = fixture();
+  assert.ok(section(renderBrief('build', f.ctx({ entry: f.entries[0] })), 'Task').includes('If you cannot do the job without a decision from a person, change nothing and put the decision under Questions.'));
+  assert.equal(renderBrief('tester', f.ctx()).includes('change nothing and put the decision'), false);
 });
 
 test('paths with a space are written in full', () => {

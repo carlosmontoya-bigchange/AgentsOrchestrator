@@ -8,16 +8,19 @@ const store = require('../scripts/lib/store.js');
 const { readState, writeMode, readApprovals, sessionTask, stageFile } = require('../scripts/lib/taskstore.js');
 const engine = require('../scripts/lib/engine.js');
 
+const { spawnSync } = require('node:child_process');
+
+const HOOK = path.join(pluginRoot, 'scripts', 'hook.js');
 const now = () => new Date('2026-11-24T10:00:00.000Z');
 const out = (dir, ...args) => String(git(dir, ...args)).trim();
 const read = (file) => fs.readFileSync(file, 'utf8');
 let count = 0;
 
 // What an agent leaves behind: a report with every heading.
-const rep = ({ evidence = '', open = 'None', summary = 'Done.' } = {}) => ['## Summary', summary, '## Did', '-', '## Found', '-', '## Changed files', '-', '## Evidence', evidence, '## Open points', open, '## Next', '-', ''].join('\n');
+const rep = ({ evidence = '', questions = 'None', notes = 'None', summary = 'Done.' } = {}) => ['## Summary', summary, '## Did', '-', '## Found', '-', '## Changed files', '-', '## Evidence', evidence, '## Questions', questions, '## Notes', notes, '## Next', '-', ''].join('\n');
 const SAFE = 'Sensitive change: no';
 const agent = (name, repo = APP) => ({ stage: 'build', agent: name, repo, job: 'Do the job.' });
-const order = (change = {}) => ({ format: 1, size: 'S', summary: 'Change the greeting.', repos: [APP], agents: [agent('backend')], checks: [], risks: [], open_points: [], debate: false, ...change });
+const order = (change = {}) => ({ format: 1, size: 'S', summary: 'Change the greeting.', repos: [APP], agents: [agent('backend')], checks: [], risks: [], questions: [], debate: false, ...change });
 
 const TRIVIAL = ['--predict', 'trivial', '--repo', 'App', '--place', 'src/greeting.cs'];
 const SMALL = ['--predict', 'small', '--repo', 'App'];
@@ -153,7 +156,12 @@ test('an approving review in Manual mode asks Review result; Continue closes the
   const r = await t.next();
   assert.deepEqual([r.stage, r.step, r.action.type, r.action.checkpoint, r.action.header], ['review', 'asking', 'ask', 'review_result', 'Review']);
   assert.deepEqual(r.action.options.map((o) => o.label), ['Continue', 'Continue with a change', 'Stop here']);
-  assert.ok(r.action.question.startsWith(`Review result, task ${t.id}.\nThe Reviewer approves the change.`));
+  assert.equal(r.action.question, 'Review result: approved. Close the task?');
+  assert.deepEqual(r.action.summary.split('\n'), [
+    '### Review result: approved', `Task ${t.id}, App, branch task/${t.id}`, '',
+    '**Next:** The task closes. The work stays uncommitted on its branch.', 'The report: review/stage-report.md',
+  ]);
+  assert.equal(read(r.action.file), r.action.summary + '\n');
   assert.deepEqual(t.answer('review_result', 'continue'), { ok: true, status: 'running' });
   const end = await t.next();
   assert.deepEqual([end.action.type, end.action.status, t.state().status], ['end', 'done', 'done']);
@@ -208,7 +216,7 @@ test('a small task dispatches the Orchestrator on the small model, a full one on
   assert.equal((await (await task(FULL)).next()).action.waves[0][0].model, 'opus');
 });
 
-test('no work order from the small Orchestrator runs it again on the full model, once', async () => {
+test('no work order from the small Orchestrator runs it again on the full model, once, then the task asks', async () => {
   const t = await task(SMALL);
   const models = [];
   for (let i = 0; i < 3; i++) {
@@ -224,7 +232,16 @@ test('no work order from the small Orchestrator runs it again on the full model,
   assert.ok(read(stageFile(t.dir, 'understand', 'orchestrator', 2, 'brief.md')).includes(note));
   assert.equal(read(stageFile(t.dir, 'understand', 'orchestrator', 2, 'brief.md')).includes('write no work order'), false);
   const end = await t.next();
-  assert.deepEqual([end.action.type, end.action.status, t.state().status], ['end', 'blocked', 'blocked']);
+  assert.deepEqual([end.action.type, end.action.checkpoint, t.state().status], ['ask', 'needs_you', 'running']);
+  assert.equal(end.action.question, 'Needs you: no usable work order. What should happen?');
+  const lines = end.action.summary.split('\n');
+  assert.equal(lines[1], 'The Orchestrator left no usable work order in two runs. No work order was written.');
+  assert.equal(lines.at(-1), 'The report: understand/orchestrator-r3.md', 'the Orchestrator\'s own report is named');
+  // The developer's answer gives the Orchestrator a fresh pair of runs.
+  const answer = t.file('change-1.md');
+  fs.writeFileSync(answer, 'It is one line in src/greeting.cs.');
+  t.answer('needs_you', 'change', answer);
+  assert.deepEqual([(await t.next()).action.waves[0][0].model, t.state().redo, t.state().round.understand], ['opus', 0, 4]);
 });
 
 test('the small Orchestrator sizing a task M is run again on the full model', async () => {
@@ -236,7 +253,7 @@ test('the small Orchestrator sizing a task M is run again on the full model', as
   assert.ok(read(stageFile(t.dir, 'understand', 'problems', 1, 'md')).includes('sized the task M'));
 });
 
-test('an invalid work order runs the Orchestrator again with the problems in a note, then blocks', async () => {
+test('an invalid work order runs the Orchestrator again with the problems in a note, then the task asks', async () => {
   const t = await task(FULL);
   await t.next();
   t.order(order({ repos: ['../x'], agents: [agent('backend', '../x')] }));
@@ -247,9 +264,9 @@ test('an invalid work order runs the Orchestrator again with the problems in a n
   assert.ok(read(stageFile(t.dir, 'understand', 'orchestrator', 2, 'brief.md')).includes(note));
   t.order('{ "format": 1,');
   const end = await t.next();
-  assert.deepEqual([end.action.status, t.state().status], ['blocked', 'blocked']);
-  assert.match(t.state().blocked, /not valid JSON/);
-  assert.ok(end.action.lines[0].startsWith(`Task ${t.id} is blocked:`));
+  assert.deepEqual([end.action.checkpoint, t.state().status], ['needs_you', 'running']);
+  assert.match(end.action.summary, /not valid JSON/);
+  assert.deepEqual(end.action.options.map((o) => o.description)[0], 'The Orchestrator plans again with your answer.');
   assert.equal(fs.existsSync(path.join(t.h.work, 'x')), false, 'nothing is written outside the task folder');
   assert.equal(fs.existsSync(t.file('build')), false, 'nothing was dispatched to Build');
 });
@@ -258,15 +275,19 @@ test('a valid work order writes the Understand report and asks Work order', asyn
   const t = await task(SMALL);
   await t.next();
   t.order();
-  t.report('understand', 'orchestrator', rep({ open: '- The label text is not agreed.' }));
+  t.report('understand', 'orchestrator', rep({ questions: '- Which label text do you want?', notes: 'The dialect is not stated.' }));
   const r = await t.next();
   assert.deepEqual([r.stage, r.step, r.action.type, r.action.checkpoint], ['understand', 'asking', 'ask', 'work_order']);
   const report = stageFile(t.dir, 'understand', 'stage-report', 1, 'md');
-  assert.ok(r.action.question.includes(`The task is sized S: Change the greeting. Report: ${report}`));
-  assert.ok(r.action.question.includes(`Affects: item ${t.id}; App.`));
-  assert.ok(r.action.question.includes('Next: Build starts: backend in App.'));
-  assert.ok(r.action.question.includes('Open points: orchestrator: The label text is not agreed.'));
+  assert.equal(r.action.question, 'Work order: size S, 1 question. Start Build?');
+  assert.deepEqual(r.action.summary.split('\n'), [
+    '### Work order: size S', 'Change the greeting.', `Task ${t.id}, App`, '',
+    '**You decide**', '- Which label text do you want?', '',
+    '**Next:** Build starts: backend in App.', '1 note for later is in understand/stage-report.md',
+  ]);
+  assert.equal(read(stageFile(t.dir, 'understand', 'checkpoint', 1, 'md')), r.action.summary + '\n');
   assert.ok(read(report).includes('Build agents: backend in App.'));
+  assert.ok(read(report).includes('## Questions\n\n- Which label text do you want?\n\n## Notes\n\n- The dialect is not stated.\n'));
   const s = t.state();
   assert.deepEqual([s.size, s.asking.checkpoint, s.asking.then], ['S', 'work_order', { stage: 'build', step: 'ready' }]);
 });
@@ -300,7 +321,8 @@ test('an M task carries the open point about Design and Plan, so Auto asks', asy
   t.report('understand', 'orchestrator');
   const r = await t.next();
   assert.deepEqual([r.action.type, r.action.checkpoint], ['ask', 'work_order']);
-  assert.ok(r.action.question.includes('The Design and Plan stages are not in this version: this M task goes from the work order straight to Build.'));
+  assert.equal(r.action.question, 'Work order: size M, 1 question. Start Build?');
+  assert.ok(r.action.summary.includes('- The Design and Plan stages are not in this version: this M task goes from the work order straight to Build.'));
 
   const s = await task(FULL, { mode: 'auto' });
   await s.next();
@@ -326,7 +348,8 @@ test('a larger size than before asks Task grew instead of Work order', async () 
   t.report('understand', 'orchestrator');
   const r = await t.next();
   assert.deepEqual([r.action.checkpoint, r.action.header], ['task_grew', 'Task grew']);
-  assert.ok(r.action.question.includes('The task grew from S to M: Change the greeting.'));
+  assert.equal(r.action.question, 'Task grew: from S to M, 1 question. Start Build?');
+  assert.deepEqual(r.action.summary.split('\n').slice(0, 2), ['### Task grew: from S to M', 'Change the greeting.']);
 });
 
 test('"Continue with a change" on the work order runs the Orchestrator again with the note', async () => {
@@ -385,17 +408,19 @@ test('a Policy exception line asks Policy exception before Test', async () => {
   await understood(t);
   await t.next();
   writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
-  t.report('build', 'backend', rep({ evidence: SAFE, open: '- Policy exception: pod-migration - drop the old column' }));
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: '- Policy exception: pod-migration - drop the old column' }));
   const r = await t.next();
   assert.deepEqual([r.action.checkpoint, r.action.header, r.stage, r.step], ['policy_exception', 'Policy', 'build', 'asking']);
-  assert.ok(r.action.question.includes('Open points: backend: pod-migration - drop the old column'));
+  assert.equal(r.action.question, 'Policy exception: a policy needs your yes, 1 question. Go on without it?');
+  assert.ok(r.action.summary.includes('**You decide**\n- pod-migration - drop the old column\n'));
+  assert.ok(r.action.summary.includes('To allow it, choose "Continue with a change" and say so.'));
   t.answer('policy_exception', 'continue');
   assert.equal((await t.next()).action.type, 'run');
 });
 
 // ---- loops and limits
 
-test('a missing report is dispatched again twice, then the task is blocked', async () => {
+test('a missing report is dispatched again twice, then the task asks', async () => {
   const t = await task(FULL);
   await understood(t, order({ agents: [agent('backend'), agent('database')] }));
   const first = await t.next();
@@ -408,17 +433,23 @@ test('a missing report is dispatched again twice, then the task is blocked', asy
   }
   t.later(60);
   const end = await t.next();
-  assert.deepEqual([end.action.type, end.action.status], ['end', 'blocked']);
-  assert.equal(t.state().blocked, 'database wrote no report in three runs.');
+  assert.deepEqual([end.action.type, end.action.checkpoint], ['ask', 'needs_you']);
+  assert.equal(end.action.question, 'Needs you: an agent left no report. What should happen?');
+  assert.equal(end.action.summary.split('\n')[1], 'database wrote no report in three runs.');
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Run it again.');
+  t.answer('needs_you', 'change', note);
+  const again = await t.next();
+  assert.deepEqual([again.action.stage, t.state().redo, t.state().round.build], ['build', 0, 2]);
 });
 
-test('a Build that changed no file blocks the task', async () => {
+test('a Build that changed no file asks, with no question of its own when the agent has none', async () => {
   const t = await task(TRIVIAL);
   await t.next();
   t.report('build', 'backend', rep({ evidence: SAFE }));
   const end = await t.next();
-  assert.deepEqual([end.action.status, t.state().blocked], ['blocked', 'Build changed no file.']);
-  assert.equal(sessionTask(t.h.env, `sess-${t.id}`), null);
+  assert.deepEqual([end.action.checkpoint, end.action.question], ['needs_you', 'Needs you: Build changed no file. What should happen?']);
+  assert.equal(sessionTask(t.h.env, `sess-${t.id}`), t.dir, 'the task still runs, so its session stays registered');
   assert.ok(fs.existsSync(stageFile(t.dir, 'build', 'stage-report', 1, 'md')));
 });
 
@@ -451,7 +482,7 @@ test('the Tester runs for a check in the work order though the tests pass, and i
   assert.deepEqual([(await t.next()).action.stage, t.state().returns.test], ['build', 1]);
 });
 
-test('a third test failure re-routes to the full Orchestrator; after two more returns the task blocks', async () => {
+test('a third test failure re-routes to the full Orchestrator; after two more returns the task asks, and Continue goes on to Review', async () => {
   const t = await task(SMALL, { setup: failingTests });
   await understood(t);
   await t.next();
@@ -479,37 +510,74 @@ test('a third test failure re-routes to the full Orchestrator; after two more re
   }
   t.report('build', 'backend', rep({ evidence: SAFE }));
   const end = await failTests(t);
-  assert.deepEqual([end.action.type, end.action.status], ['end', 'blocked']);
-  assert.match(t.state().blocked, /^The tests still fail after two returns to Build and a new plan from the Orchestrator\./);
-  assert.ok(t.state().blocked.includes(stageFile(t.dir, 'test', 'stage-report', 6, 'md')));
+  assert.deepEqual([end.action.type, end.action.checkpoint, t.state().status], ['ask', 'needs_you', 'running']);
+  assert.equal(end.action.question, 'Needs you: the tests still fail. What should happen?');
+  assert.equal(end.action.summary.split('\n')[1], 'The tests still fail after two returns to Build and a new plan from the Orchestrator.');
+  assert.ok(end.action.summary.endsWith('The report: test/stage-report-r6.md'));
+  assert.deepEqual(end.action.options.map((o) => o.label), ['Continue', 'Continue with a change', 'Stop here']);
+  assert.equal(end.action.options[0].description, 'Review starts, with the failing tests on record.');
+  assert.deepEqual(t.state().asking.change.reset, ['test', 'reroute']);
+  t.answer('needs_you', 'continue');
+  const review = await t.next();
+  assert.deepEqual([review.stage, review.action.waves[0][0].key], ['review', 'reviewer']);
+  assert.ok(read(stageFile(t.dir, 'review', 'reviewer', 1, 'brief.md')).includes(stageFile(t.dir, 'test', 'result', 6, 'json')));
 });
 
-test('a review that asks for changes returns to Build twice, then blocks', async () => {
+test('after the whole test loop, an answer with a change starts the counts over', async () => {
+  const t = await task(TRIVIAL, { setup: failingTests });
+  await t.next();
+  build(t);
+  let r = await failTests(t);
+  for (let i = 0; i < 2; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  assert.equal(r.stage, 'understand');
+  t.order();
+  t.report('understand', 'orchestrator');
+  r = await t.next();
+  t.answer(r.action.checkpoint, 'continue');
+  await t.next();
+  for (let i = 0; i < 3; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  assert.equal(r.action.checkpoint, 'needs_you');
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'The test command is wrong: fix the script.');
+  t.answer('needs_you', 'change', note);
+  const back = await t.next();
+  assert.deepEqual([back.action.stage, t.state().returns], ['build', { test: 0, review: 0, reroute: 0 }]);
+  const brief = read(stageFile(t.dir, 'build', 'backend', t.state().round.build, 'brief.md'));
+  assert.ok(brief.includes(note) && brief.includes(stageFile(t.dir, 'test', 'tester', 6, 'md')));
+});
+
+test('a review that asks for changes returns to Build twice, then the task asks', async () => {
   const t = await task(TRIVIAL);
   await t.next();
   for (const round of [1, 2]) {
     const review = await throughReview(t, 'Verdict: changes');
     const r = await t.next();
     assert.equal(r.action.checkpoint, 'review_result');
-    assert.ok(r.action.question.includes('The Reviewer asks for changes.'));
+    assert.equal(r.action.question, 'Review result: changes asked. Run Build again?');
     t.answer('review_result', 'continue');
     const back = await t.next();
     assert.deepEqual([back.action.stage, t.state().returns.review, t.state().round.build], ['build', round, round + 1]);
     assert.ok(read(stageFile(t.dir, 'build', 'backend', round + 1, 'brief.md')).includes(review));
   }
-  await throughReview(t, 'Verdict: changes');
+  const review = await throughReview(t, 'Verdict: changes');
   const last = await t.next();
-  assert.ok(last.action.question.includes('Next: The task is blocked'));
-  assert.deepEqual(t.answer('review_result', 'continue'), { ok: true, status: 'blocked' });
-  const end = await t.next();
-  assert.deepEqual([end.action.status, t.state().blocked], ['blocked', 'The review still asks for changes after two returns to Build.']);
+  assert.deepEqual([last.action.checkpoint, last.action.question], ['needs_you', 'Needs you: the review still asks for changes. What should happen?']);
+  assert.equal(last.action.summary.split('\n')[1], 'The review still asks for changes after two returns to Build.');
+  assert.deepEqual(last.action.options.map((o) => o.label), ['Continue with a change', 'Stop here']);
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Do only the first finding.');
+  t.answer('needs_you', 'change', note);
+  const back = await t.next();
+  assert.deepEqual([back.action.stage, t.state().returns.review, t.state().round.build], ['build', 0, 4]);
+  const brief = read(stageFile(t.dir, 'build', 'backend', 4, 'brief.md'));
+  assert.ok(brief.includes(note) && brief.includes(review));
 });
 
 test('a missing Verdict line is read as changes', async () => {
   const t = await task(TRIVIAL);
   await t.next();
   await throughReview(t, 'It looks fine to me.');
-  assert.ok((await t.next()).action.question.includes('The Reviewer asks for changes.'));
+  assert.equal((await t.next()).action.question, 'Review result: changes asked. Run Build again?');
 });
 
 test('"Continue with a change" after a review sends Build the note and the review', async () => {
@@ -659,10 +727,12 @@ test('next on a done or blocked task returns end and changes nothing', async () 
   await done.next();
   await throughReview(done);
   const first = await done.next();
-  const blocked = await task(TRIVIAL);
+  // Blocked means parked: nothing may be asked, so the task waits with its question.
+  const blocked = await task(TRIVIAL, { mode: 'bypassPermissions' });
   await blocked.next();
   blocked.report('build', 'backend', rep({ evidence: SAFE }));
   const stuck = await blocked.next();
+  assert.equal(stuck.action.status, 'blocked');
   for (const [t, was] of [[done, first], [blocked, stuck]]) {
     const before = snapshot(t.dir);
     const r = await t.next();
@@ -762,7 +832,9 @@ test('a Test round in which no command ran says so, and what was skipped reaches
   const open = 'App: the test command is recorded as not run on this machine.';
   assert.deepEqual([shown.show[0].lines[0], shown.show[0].lines.includes(open)], ['The tests passed.', true]);
   skipped.report('review', 'reviewer', rep({ evidence: 'Verdict: approve' }));
-  assert.ok((await skipped.next()).action.question.includes(open), 'the developer sees it at the Review checkpoint');
+  const asked = await skipped.next();
+  assert.ok(asked.action.summary.includes(`**You decide**\n- ${open}\n`), 'the developer sees it at the Review checkpoint');
+  assert.equal(asked.action.question, 'Review result: approved, 1 question. Close the task?');
 });
 
 test('a Policy exception that is not asked is still shown, in every mode', async () => {
@@ -772,7 +844,7 @@ test('a Policy exception that is not asked is still shown, in every mode', async
   t.report('understand', 'orchestrator');
   await t.next();
   writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
-  t.report('build', 'backend', rep({ evidence: SAFE, open: '- Policy exception: pod-migration - drop the old column' }));
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: '- Policy exception: pod-migration - drop the old column' }));
   const r = await t.next();
   assert.equal(r.action.type, 'run');
   assert.ok(r.show[0].lines.includes('Not done, a policy needs your yes: backend: pod-migration - drop the old column'));
@@ -825,4 +897,241 @@ test('next registers the session of a stopped task, so the hook records for the 
   assert.equal(t.state().status, 'stopped');
   await taskCli(t.h, 'next', t.id, '--session', 'resumed-session');
   assert.equal(sessionTask(t.h.env, 'resumed-session'), t.dir);
+});
+
+// ---- the task asks when it cannot go on (0.2.1)
+
+// A trivial task whose Build agent changed nothing and asks a question instead.
+async function stuckInBuild(opts) {
+  const t = await task(TRIVIAL, opts);
+  await t.next();
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which wording do you want?' }));
+  return t;
+}
+
+test('an Orchestrator that needs an answer raises Needs you, and the answer plans again', async () => {
+  const t = await task(SMALL);
+  await t.next();
+  t.order(order({ agents: [], questions: ['Which table should the index cover?'] }));
+  t.report('understand', 'orchestrator', rep({ questions: 'Which table should the index cover?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint, r.action.header, t.state().status], ['ask', 'needs_you', 'Needs you', 'running']);
+  assert.equal(r.action.question, 'Needs you: the Orchestrator needs an answer, 1 question. What should happen?');
+  assert.deepEqual(r.action.options.map((o) => o.label), ['Continue with a change', 'Stop here']);
+  assert.deepEqual(r.action.summary.split('\n'), [
+    '### Needs you: the Orchestrator needs an answer', 'The Orchestrator cannot plan this until you answer.', `Task ${t.id}`, '',
+    '**You decide**', '- Which table should the index cover?', '',
+    '**Next:** Nothing runs until you answer.', 'The report: understand/stage-report.md',
+  ]);
+  assert.equal(read(r.action.file), r.action.summary + '\n');
+  assert.equal(r.action.file, stageFile(t.dir, 'understand', 'checkpoint', 1, 'md'));
+  const before = [JSON.stringify(t.state()), readApprovals(t.dir).length];
+  assert.throws(() => t.answer('needs_you', 'continue'), (e) => e.code === 'bad-choice');
+  assert.deepEqual([JSON.stringify(t.state()), readApprovals(t.dir).length], before, 'a refused answer changes nothing');
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Table dbo.Customer, column Email.\n');
+  t.answer('needs_you', 'change', note);
+  const again = await t.next();
+  assert.deepEqual([again.stage, again.action.type, again.action.waves[0][0].model], ['understand', 'dispatch', 'sonnet']);
+  assert.ok(read(stageFile(t.dir, 'understand', 'orchestrator', 2, 'brief.md')).includes(note));
+});
+
+test('Build that changed no file asks with the agent\'s question', async () => {
+  const t = await stuckInBuild();
+  const r = await t.next();
+  assert.equal(r.action.checkpoint, 'needs_you');
+  assert.equal(r.action.question, 'Needs you: Build changed no file, 1 question. What should happen?');
+  assert.ok(r.action.summary.includes('- Which wording do you want?'));
+  assert.equal(r.action.options[0].description, 'Build runs again with your answer.');
+  assert.equal(t.state().status, 'running');
+});
+
+test('under Bypass permissions a task that needs you is parked, and an answer in words restarts it', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.status, t.state().blocked], ['end', 'blocked', 'Build changed no file.']);
+  assert.ok(r.action.lines.includes(`To go on, say what should happen: /pod-harness:resume ${t.id}.`));
+  assert.equal(r.action.lines.some((l) => l.includes('cannot be started again')), false);
+  // The developer reads what is asked without opening a file.
+  assert.ok(r.action.lines.includes('It needs your answer: Which wording do you want?'));
+  assert.ok(r.action.lines.includes(`The question: ${stageFile(t.dir, 'build', 'checkpoint', 1, 'md')}`));
+  assert.equal(sessionTask(t.h.env, `sess-${t.id}`), t.dir, 'a parked task stays registered, so the hook still records the mode for it');
+  assert.ok(read(stageFile(t.dir, 'build', 'checkpoint', 1, 'md')).includes('- Which wording do you want?'));
+  assert.equal((await t.next()).action.status, 'blocked', 'still nothing may be asked');
+  assert.deepEqual([t.state().asking.checkpoint, t.state().asking.parked], ['needs_you', true]);
+  assert.throws(() => t.answer('needs_you', 'stop'), (e) => e.code === 'bad-choice', 'a waiting task is already stopped');
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Say "hello, pod".\n');
+  assert.deepEqual(t.answer('needs_you', 'change', note), { ok: true, status: 'running' });
+  assert.deepEqual(readApprovals(t.dir).map((e) => [e.outcome, e.answer]), [['skipped', undefined], ['answered', 'change']], 'nothing was asked, so the log does not say "asked"');
+  const again = await t.next();
+  assert.deepEqual([again.stage, again.action.type, t.state().round.build], ['build', 'dispatch', 2]);
+  assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(note));
+});
+
+test('under Bypass permissions tests that still fail park the task: Review is not started unasked', async () => {
+  const t = await task(TRIVIAL, { setup: failingTests, mode: 'bypassPermissions' });
+  await t.next();
+  build(t);
+  let r = await failTests(t);
+  for (let i = 0; i < 2; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  assert.equal(r.stage, 'understand');
+  t.order();
+  t.report('understand', 'orchestrator');
+  assert.equal((await t.next()).action.stage, 'build', 'the work order is not asked under Bypass permissions');
+  for (let i = 0; i < 3; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  assert.deepEqual([r.action.type, r.action.status, t.state().asking.checkpoint, t.state().round.review], ['end', 'blocked', 'needs_you', 0]);
+  assert.deepEqual(t.state().asking.choices, ['continue', 'change', 'stop']);
+});
+
+test('a parked question is asked once the mode allows it', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  const parked = await t.next();
+  assert.equal(parked.action.status, 'blocked');
+  writeMode(t.dir, { value: 'default', at: now().toISOString(), event: 'UserPromptSubmit' });
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint, t.state().status, t.state().asking.parked], ['ask', 'needs_you', 'running', false]);
+  assert.equal(r.action.question, 'Needs you: Build changed no file, 1 question. What should happen?');
+  assert.deepEqual(readApprovals(t.dir).map((e) => [e.outcome, e.reason]), [['skipped', 'bypass'], ['asked', 'mode']]);
+});
+
+test('a parked task is asked in the same session after the developer leaves Bypass permissions: the real hook records for it', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  assert.equal((await t.next()).action.status, 'blocked');
+  const input = JSON.stringify({ session_id: `sess-${t.id}`, hook_event_name: 'UserPromptSubmit', permission_mode: 'default' });
+  assert.equal(spawnSync(process.execPath, [HOOK], { input, env: { ...process.env, ...t.h.env }, encoding: 'utf8' }).status, 0);
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint], ['ask', 'needs_you']);
+});
+
+test('in Plan mode a parked task is not asked, and nothing is written', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  await t.next();
+  writeMode(t.dir, { value: 'plan', at: now().toISOString(), event: 'UserPromptSubmit' });
+  const before = snapshot(t.dir);
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.problems[0].fix], ['fix', 'Leave Plan mode, then continue.']);
+  assert.deepEqual(snapshot(t.dir), before);
+});
+
+test('a Build agent\'s question is asked though files changed, and Continue goes on to Test', async () => {
+  const t = await task(FULL);
+  await understood(t, order({ agents: [agent('backend'), agent('database')] }));
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  t.report('build', 'database', rep({ evidence: SAFE, questions: 'Should the index be unique?', notes: 'I went on without the index.' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: a Build agent needs an answer, 1 question. What should happen?']);
+  assert.deepEqual(r.action.options.map((o) => [o.label, o.description]), [
+    ['Continue', 'Test starts, with the question left open.'],
+    ['Continue with a change', 'Build runs again with your answer.'],
+    ['Stop here', 'The task keeps everything. /pod-harness:resume continues it.'],
+  ]);
+  assert.ok(r.action.summary.includes('- Should the index be unique?'));
+  t.answer('needs_you', 'continue');
+  assert.equal((await t.next()).action.type, 'run');
+});
+
+test('a Build agent that asks and changes nothing on a later round is asked too, not sent to Test', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  await throughReview(t, 'Verdict: changes');
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  assert.equal((await t.next()).action.stage, 'build');
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which of the two findings do you want fixed?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, t.state().round.build, t.state().round.test], ['needs_you', 2, 1]);
+});
+
+test('a question beside a policy exception is shown with it', async () => {
+  const t = await task(FULL);
+  await understood(t);
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: '- Policy exception: pod-migration - drop the old column\n- Which name should the new column have?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['policy_exception', 'Policy exception: a policy needs your yes, 2 questions. Go on without it?']);
+  assert.ok(r.action.summary.includes('- pod-migration - drop the old column\n- Which name should the new column have?'));
+});
+
+test('a verdict line that says more keeps the rest', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  build(t);
+  await t.next();
+  await t.runTests();
+  await t.next();
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', summary: 'The change is right.\n**Verdict: approve.** The tests cover it.\nVerdict: approve.' }));
+  assert.deepEqual((await t.next()).show.at(-1).lines, ['Verdict: approve.', 'The change is right.', 'The tests cover it.']);
+});
+
+test('next registers the session of a parked task, and not of a done one', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  await t.next();
+  await taskCli(t.h, 'next', t.id, '--session', 'resumed-session');
+  assert.equal(sessionTask(t.h.env, 'resumed-session'), t.dir);
+  const done = await task(TRIVIAL, { mode: 'bypassPermissions' });
+  await done.next();
+  await throughReview(done);
+  await done.next();
+  await taskCli(done.h, 'next', done.id, '--session', 'late-session');
+  assert.equal(sessionTask(done.h.env, 'late-session'), null);
+});
+
+test('a work order with questions and agents is a Work order checkpoint that Auto asks', async () => {
+  const t = await task(SMALL, { mode: 'auto' });
+  await t.next();
+  t.order(order({ questions: ['Should the index be unique?'] }));
+  t.report('understand', 'orchestrator', rep({ questions: 'should the index be unique?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['work_order', 'Work order: size S, 1 question. Start Build?']);
+  assert.deepEqual(readApprovals(t.dir).map((e) => e.reason), ['auto-decision']);
+});
+
+test('in Auto a review with notes only is not asked, and the notes are in the end lines', async () => {
+  const t = await task(TRIVIAL, { mode: 'auto' });
+  await t.next();
+  build(t);
+  assert.equal((await t.next()).action.type, 'run');
+  await t.runTests();
+  await t.next();
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', notes: 'The work is uncommitted. Deliver must commit it.' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.status], ['end', 'done']);
+  assert.ok(r.action.lines.includes('Note from the review: The work is uncommitted. Deliver must commit it.'));
+  assert.deepEqual(readApprovals(t.dir).map((e) => [e.checkpoint, e.outcome, e.reason]), [['review_result', 'skipped', 'auto-nothing-to-decide']]);
+});
+
+test('a question the review leaves is asked in Auto and named in the end lines', async () => {
+  const t = await task(TRIVIAL, { mode: 'auto' });
+  await t.next();
+  build(t);
+  await t.next();
+  await t.runTests();
+  await t.next();
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', questions: 'Should the greeting be translated?' }));
+  const r = await t.next();
+  assert.equal(r.action.question, 'Review result: approved, 1 question. Close the task?');
+  t.answer('review_result', 'continue');
+  assert.ok((await t.next()).action.lines.includes('Left open at the review: Should the greeting be translated?'));
+});
+
+test('the review lines show the verdict once', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  build(t);
+  await t.next();
+  await t.runTests();
+  await t.next();
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', summary: 'The change is right.\nVerdict: approve.' }));
+  const r = await t.next();
+  assert.deepEqual(r.show.at(-1).lines, ['Verdict: approve.', 'The change is right.']);
+});
+
+test('a task that is done says so when nothing is left open', async () => {
+  const t = await task(TRIVIAL, { mode: 'bypassPermissions' });
+  await t.next();
+  await throughReview(t);
+  assert.ok((await t.next()).action.lines.includes('The last review left nothing open.'));
 });

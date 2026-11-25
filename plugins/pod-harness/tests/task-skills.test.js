@@ -135,12 +135,48 @@ test('the README documents the five commands and the Claude Code version', () =>
   assert.equal(/Phase 1 sets up only|Nothing runs tasks yet/.test(text), false, 'the README no longer says nothing runs');
 });
 
-test('plugin.json is at 0.2.0 and the marketplace describes running tasks', () => {
+test('plugin.json is at 0.2.1 and the marketplace describes running tasks', () => {
   const plugin = JSON.parse(read('.claude-plugin/plugin.json'));
-  assert.equal(plugin.version, '0.2.0');
+  assert.equal(plugin.version, '0.2.1');
   assert.match(plugin.description, /\/pod-harness:task/);
   const market = JSON.parse(fs.readFileSync(path.join(pluginRoot, '..', '..', '.claude-plugin', 'marketplace.json'), 'utf8'));
   assert.match(market.plugins.find((p) => p.name === 'pod-harness').description, /task/i);
+});
+
+test('task prints the summary before the dialog, and passes on the developer\'s words for a blocked task', () => {
+  const text = skill('task');
+  assert.match(text, /Print `summary` exactly as given: it is markdown\./);
+  assert.ok(text.indexOf('Print `summary`') < text.indexOf('question dialog: `header`'));
+  assert.match(text, /There are two or three options/);
+  assert.match(text, /An option that is not offered is never sent\./);
+  assert.match(text, /answer <id> needs_you change "@<full path of the note>"/);
+  assert.match(text, /If words follow the task id, they are the developer's answer/);
+  assert.match(text, /At any other question, raise the dialog as usual./);
+  assert.equal(text.includes('the three `options`'), false);
+});
+
+test('resume passes the developer\'s words on, and a blocked task waits for an answer', () => {
+  const text = skill('resume');
+  assert.equal(text.includes('cannot be started again'), false);
+  assert.match(text, /any words the developer gave after the id/);
+  assert.match(text, /restarts the stage that stopped/);
+});
+
+test('setup says when a permission rule starts to hold, and shows only the globs that match', () => {
+  assert.match(setupStep(7), /A rule in your user settings holds at once\. A rule in a project settings file that did not exist before holds from the next session\./);
+  assert.match(setupStep(8), /only the globs that match at least one file/);
+  assert.match(setupStep(8), /how many globs match nothing/);
+  assert.equal(skill('setup').includes('open point'), false);
+});
+
+test('the README says how a task asks when it cannot go on', () => {
+  const text = read('README.md');
+  assert.match(text, /This is version 0\.2\.1/);
+  assert.match(text, /Needs you/);
+  assert.match(text, /Agents take the permission mode of your session\. The harness sets none of its own\./);
+  assert.match(text, /questions and notes/i);
+  assert.equal(text.includes('cannot be started again'), false);
+  assert.match(text, /Four more checkpoints always exist/);
 });
 
 test('task waits for agents to finish, not to start, and handles a wait it cannot time', () => {
