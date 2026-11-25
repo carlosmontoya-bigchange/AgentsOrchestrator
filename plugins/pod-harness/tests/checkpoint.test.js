@@ -8,7 +8,7 @@ const OFF = { work_order: false, design: false, plan: false, review_result: fals
 const at = (change = {}) => decide({ checkpoint: 'work_order', approvals: ON, mode: 'default', quiet: false, size: 'S', questions: 0, ...change });
 const ask = (change) => at(change).ask;
 const q = (change = {}) => question({
-  checkpoint: 'review_result', id: '363471', headline: 'approved', ask: 'Close the task?', affects: ['app, branch task/363471'],
+  checkpoint: 'review_result', id: '362525', headline: 'approved', ask: 'Close the task?', affects: ['app, branch task/362525'],
   next: 'The task closes. The work stays uncommitted on its branch.', questions: [], notes: 0, report: 'review/stage-report.md', ...change,
 });
 
@@ -66,7 +66,7 @@ test('the question is one line and the summary carries the rest', () => {
   const r = q({ questions: ['Should the index be unique?'], notes: 2 });
   assert.equal(r.question, 'Review result: approved, 1 question. Close the task?');
   assert.deepEqual(r.summary.split('\n'), [
-    '### Review result: approved', 'Task 363471, app, branch task/363471', '',
+    '### Review result: approved', 'Task 362525, app, branch task/362525', '',
     '**You decide**', '- Should the index be unique?', '',
     '**Next:** The task closes. The work stays uncommitted on its branch.', '2 notes for later are in review/stage-report.md',
   ]);
@@ -78,7 +78,7 @@ test('the question is one line and the summary carries the rest', () => {
 });
 
 test('a part with nothing to show is left out of the summary', () => {
-  assert.deepEqual(q({ affects: [], report: undefined, next: undefined }).summary.split('\n'), ['### Review result: approved', 'Task 363471']);
+  assert.deepEqual(q({ affects: [], report: undefined, next: undefined }).summary.split('\n'), ['### Review result: approved', 'Task 362525']);
 });
 
 test('at most five questions are listed', () => {
@@ -91,7 +91,7 @@ test('needs_you has its own name, and its detail is shown under the title', () =
   const r = q({ checkpoint: 'needs_you', headline: 'the tests still fail', ask: 'What should happen?', detail: 'The tests still fail after two returns to Build and a new plan.', again: 'Build runs' });
   assert.equal(r.header, 'Needs you');
   assert.equal(r.question, 'Needs you: the tests still fail. What should happen?');
-  assert.deepEqual(r.summary.split('\n').slice(0, 3), ['### Needs you: the tests still fail', 'The tests still fail after two returns to Build and a new plan.', 'Task 363471, app, branch task/363471']);
+  assert.deepEqual(r.summary.split('\n').slice(0, 3), ['### Needs you: the tests still fail', 'The tests still fail after two returns to Build and a new plan.', 'Task 362525, app, branch task/362525']);
   assert.equal(r.options[1].description, 'Build runs again with your answer.');
 });
 
