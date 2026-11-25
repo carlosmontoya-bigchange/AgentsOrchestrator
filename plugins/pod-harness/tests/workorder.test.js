@@ -92,6 +92,11 @@ test('a work order with no agent and no question is refused, and a blank questio
   assert.deepEqual(wo.validateWorkOrder(example({ agents: [], questions: ['  '] }), config()), ['The work order names no Build agent and asks no question.']);
 });
 
+test('a work order that only asks may name no repo: the question can be which repo it is', () => {
+  assert.deepEqual(wo.validateWorkOrder(example({ repos: [], agents: [], questions: ['Which repo holds the customer table?'] }), config()), []);
+  assert.deepEqual(wo.validateWorkOrder(example({ repos: [], questions: ['Which repo?'] }), config()), ['The work order names no repo.', 'Agent 1: its repo is not in "repos".']);
+});
+
 test('open_points is not a field any more', () => {
   const old = example();
   delete old.questions;

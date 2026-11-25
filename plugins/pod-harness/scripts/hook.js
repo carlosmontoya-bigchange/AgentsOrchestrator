@@ -12,7 +12,9 @@ function handle(input, env) {
   const dir = sessionTask(env, input.session_id);
   if (!dir) return '';
   const state = readState(dir); // throws when the folder holds no readable task: caught below
-  if (state.status !== 'running') return '';
+  // A task that waits as blocked with a question is still followed: its question is asked once the mode allows.
+  const waiting = state.status === 'blocked' && Boolean(state.asking);
+  if (state.status !== 'running' && !waiting) return '';
 
   const event = input.hook_event_name;
   if (RECORDS_MODE.includes(event) && typeof input.permission_mode === 'string') {

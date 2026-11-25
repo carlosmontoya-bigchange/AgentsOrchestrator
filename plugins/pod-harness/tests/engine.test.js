@@ -8,6 +8,9 @@ const store = require('../scripts/lib/store.js');
 const { readState, writeMode, readApprovals, sessionTask, stageFile } = require('../scripts/lib/taskstore.js');
 const engine = require('../scripts/lib/engine.js');
 
+const { spawnSync } = require('node:child_process');
+
+const HOOK = path.join(pluginRoot, 'scripts', 'hook.js');
 const now = () => new Date('2026-11-24T10:00:00.000Z');
 const out = (dir, ...args) => String(git(dir, ...args)).trim();
 const read = (file) => fs.readFileSync(file, 'utf8');
@@ -922,8 +925,9 @@ test('an Orchestrator that needs an answer raises Needs you, and the answer plan
   ]);
   assert.equal(read(r.action.file), r.action.summary + '\n');
   assert.equal(r.action.file, stageFile(t.dir, 'understand', 'checkpoint', 1, 'md'));
+  const before = [JSON.stringify(t.state()), readApprovals(t.dir).length];
   assert.throws(() => t.answer('needs_you', 'continue'), (e) => e.code === 'bad-choice');
-  assert.equal(t.state().asking.checkpoint, 'needs_you', 'a refused answer changes nothing');
+  assert.deepEqual([JSON.stringify(t.state()), readApprovals(t.dir).length], before, 'a refused answer changes nothing');
   const note = t.file('change-1.md');
   fs.writeFileSync(note, 'Table dbo.Customer, column Email.\n');
   t.answer('needs_you', 'change', note);
@@ -948,13 +952,18 @@ test('under Bypass permissions a task that needs you is parked, and an answer in
   assert.deepEqual([r.action.type, r.action.status, t.state().blocked], ['end', 'blocked', 'Build changed no file.']);
   assert.ok(r.action.lines.includes(`To go on, say what should happen: /pod-harness:resume ${t.id}.`));
   assert.equal(r.action.lines.some((l) => l.includes('cannot be started again')), false);
-  assert.equal(sessionTask(t.h.env, `sess-${t.id}`), null);
+  // The developer reads what is asked without opening a file.
+  assert.ok(r.action.lines.includes('It needs your answer: Which wording do you want?'));
+  assert.ok(r.action.lines.includes(`The question: ${stageFile(t.dir, 'build', 'checkpoint', 1, 'md')}`));
+  assert.equal(sessionTask(t.h.env, `sess-${t.id}`), t.dir, 'a parked task stays registered, so the hook still records the mode for it');
   assert.ok(read(stageFile(t.dir, 'build', 'checkpoint', 1, 'md')).includes('- Which wording do you want?'));
   assert.equal((await t.next()).action.status, 'blocked', 'still nothing may be asked');
   assert.deepEqual([t.state().asking.checkpoint, t.state().asking.parked], ['needs_you', true]);
+  assert.throws(() => t.answer('needs_you', 'stop'), (e) => e.code === 'bad-choice', 'a waiting task is already stopped');
   const note = t.file('change-1.md');
   fs.writeFileSync(note, 'Say "hello, pod".\n');
   assert.deepEqual(t.answer('needs_you', 'change', note), { ok: true, status: 'running' });
+  assert.deepEqual(readApprovals(t.dir).map((e) => [e.outcome, e.answer]), [['skipped', undefined], ['answered', 'change']], 'nothing was asked, so the log does not say "asked"');
   const again = await t.next();
   assert.deepEqual([again.stage, again.action.type, t.state().round.build], ['build', 'dispatch', 2]);
   assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(note));
@@ -984,6 +993,77 @@ test('a parked question is asked once the mode allows it', async () => {
   assert.deepEqual([r.action.type, r.action.checkpoint, t.state().status, t.state().asking.parked], ['ask', 'needs_you', 'running', false]);
   assert.equal(r.action.question, 'Needs you: Build changed no file, 1 question. What should happen?');
   assert.deepEqual(readApprovals(t.dir).map((e) => [e.outcome, e.reason]), [['skipped', 'bypass'], ['asked', 'mode']]);
+});
+
+test('a parked task is asked in the same session after the developer leaves Bypass permissions: the real hook records for it', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  assert.equal((await t.next()).action.status, 'blocked');
+  const input = JSON.stringify({ session_id: `sess-${t.id}`, hook_event_name: 'UserPromptSubmit', permission_mode: 'default' });
+  assert.equal(spawnSync(process.execPath, [HOOK], { input, env: { ...process.env, ...t.h.env }, encoding: 'utf8' }).status, 0);
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint], ['ask', 'needs_you']);
+});
+
+test('in Plan mode a parked task is not asked, and nothing is written', async () => {
+  const t = await stuckInBuild({ mode: 'bypassPermissions' });
+  await t.next();
+  writeMode(t.dir, { value: 'plan', at: now().toISOString(), event: 'UserPromptSubmit' });
+  const before = snapshot(t.dir);
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.problems[0].fix], ['fix', 'Leave Plan mode, then continue.']);
+  assert.deepEqual(snapshot(t.dir), before);
+});
+
+test('a Build agent\'s question is asked though files changed, and Continue goes on to Test', async () => {
+  const t = await task(FULL);
+  await understood(t, order({ agents: [agent('backend'), agent('database')] }));
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  t.report('build', 'database', rep({ evidence: SAFE, questions: 'Should the index be unique?', notes: 'I went on without the index.' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: a Build agent needs an answer, 1 question. What should happen?']);
+  assert.deepEqual(r.action.options.map((o) => [o.label, o.description]), [
+    ['Continue', 'Test starts, with the question left open.'],
+    ['Continue with a change', 'Build runs again with your answer.'],
+    ['Stop here', 'The task keeps everything. /pod-harness:resume continues it.'],
+  ]);
+  assert.ok(r.action.summary.includes('- Should the index be unique?'));
+  t.answer('needs_you', 'continue');
+  assert.equal((await t.next()).action.type, 'run');
+});
+
+test('a Build agent that asks and changes nothing on a later round is asked too, not sent to Test', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  await throughReview(t, 'Verdict: changes');
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  assert.equal((await t.next()).action.stage, 'build');
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which of the two findings do you want fixed?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, t.state().round.build, t.state().round.test], ['needs_you', 2, 1]);
+});
+
+test('a question beside a policy exception is shown with it', async () => {
+  const t = await task(FULL);
+  await understood(t);
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: '- Policy exception: pod-migration - drop the old column\n- Which name should the new column have?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['policy_exception', 'Policy exception: a policy needs your yes, 2 questions. Go on without it?']);
+  assert.ok(r.action.summary.includes('- pod-migration - drop the old column\n- Which name should the new column have?'));
+});
+
+test('a verdict line that says more keeps the rest', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  build(t);
+  await t.next();
+  await t.runTests();
+  await t.next();
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', summary: 'The change is right.\n**Verdict: approve.** The tests cover it.\nVerdict: approve.' }));
+  assert.deepEqual((await t.next()).show.at(-1).lines, ['Verdict: approve.', 'The change is right.', 'The tests cover it.']);
 });
 
 test('next registers the session of a parked task, and not of a done one', async () => {

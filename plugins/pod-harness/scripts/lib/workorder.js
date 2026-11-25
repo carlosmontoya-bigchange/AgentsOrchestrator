@@ -44,16 +44,18 @@ function validateWorkOrder(order, config, opts = {}) {
   if (!filled(order.summary) || order.summary.length > 200) problems.push('The summary must be one sentence of at most 200 characters.');
 
   const repos = sentences(order.repos) ? order.repos : [];
-  if (repos.length === 0) problems.push('The work order names no repo.');
+  const agents = Array.isArray(order.agents) ? order.agents : [];
+  // No agent is right when nothing can be built until a person answers: the questions then say what is missing.
+  // Such an order may name no repo either: which repo it is can be the question.
+  const asks = sentences(order.questions) && order.questions.some(filled);
+  const onlyAsks = agents.length === 0 && asks;
+  if (repos.length === 0 && !onlyAsks) problems.push('The work order names no repo.');
   for (const id of repos) {
     const repo = (config.repos || []).find((r) => r.id === id);
     if (!repo) problems.push(`The repo ${id} is not set up for this pod.`);
     else if (!repo.path || !fs.existsSync(repo.path)) problems.push(`${repo.name} has no folder on this machine.`);
   }
 
-  const agents = Array.isArray(order.agents) ? order.agents : [];
-  // No agent is right when nothing can be built until a person answers: the questions then say what is missing.
-  const asks = sentences(order.questions) && order.questions.some(filled);
   if (agents.length === 0 && !asks) problems.push('The work order names no Build agent and asks no question.');
   agents.forEach((a, i) => {
     const at = `Agent ${i + 1}`;

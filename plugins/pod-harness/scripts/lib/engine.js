@@ -7,7 +7,7 @@ const { ConfigError } = require('./configfile.js');
 const { writeFileAtomic } = require('./store.js');
 const tasks = require('./taskstore.js');
 const { readWorkOrder, validateWorkOrder, withKeys, waves, readContext } = require('./workorder.js');
-const { parseReport, lineLimit, joinStageReport, stagePoints } = require('./report.js');
+const { parseReport, lineLimit, joinStageReport, stagePoints, unique } = require('./report.js');
 const { branchName, prepareRepo, measureRepo, judgeTrivial } = require('./gitwork.js');
 const { isRunning } = require('./testrun.js');
 const { renderBrief, writeBrief } = require('./brief.js');
@@ -19,7 +19,9 @@ const RANK = ['trivial', 'S', 'M', 'L'];
 const LIMITS = { redo: 2, test: 2, review: 2, reroute: 1 };
 // Who runs again when the developer answers a stage that could not go on.
 const AGAIN = { understand: 'The Orchestrator plans', build: 'Build runs', test: 'The tests run', review: 'The Reviewer reads' };
-const VERDICT_LINE = /^\s*(?:[-*]\s+)?\**\s*verdict\s*:/i;
+// "Verdict: approve." at the start of a summary line, in the forms a model writes it. Only a verdict that ends
+// there is cut: "Verdict: changes needed in the test" stays whole.
+const VERDICT_LINE = /^\s*(?:[-*]\s+)?\**\s*verdict\s*:[\s*]*(?:approve[ds]?|changes?)\**(?:\.|$)[\s*]*/i;
 // An Agent call can return before its agent has finished. For this long after a dispatch, a missing report
 // means "still working", not "left no report": it costs no retry.
 const GRACE_MS = 30 * 1000;
@@ -86,7 +88,10 @@ function endLines(c) {
   if (state.status === 'blocked' && state.stage === 'understand') files.push(tasks.stageFile(c.dir, 'understand', 'orchestrator', state.round.understand, 'md'));
   const reports = files.filter((f) => fs.existsSync(f)).map((f) => `Report: ${f}`);
   if (state.status === 'blocked') {
-    return [`Task ${state.id} is blocked: ${state.blocked}`, `It stopped in ${title(state.stage)}.`, ...repos, ...reports,
+    // What the task waits for is said here: the developer answers without opening a file.
+    const asking = state.asking || {};
+    const waits = [...(asking.questions || []).slice(0, 5).map((q) => `It needs your answer: ${q}`), ...(asking.file ? [`The question: ${asking.file}`] : [])];
+    return [`Task ${state.id} is blocked: ${state.blocked}`, `It stopped in ${title(state.stage)}.`, ...waits, ...repos, ...reports,
       `To go on, say what should happen: /pod-harness:resume ${state.id}.`, NOT_DONE];
   }
   const ran = ['understand', 'build', 'test', 'review'].filter((s) => state.round[s] > 0).map((s) => `${title(s)} ${state.round[s]} ${state.round[s] === 1 ? 'round' : 'rounds'}`);
@@ -106,6 +111,8 @@ const askAction = (asking) => ({ type: 'ask', checkpoint: asking.checkpoint, ...
 
 // Nothing may be asked (Bypass permissions, Don't ask, or quiet), and the task cannot go on by itself: it waits
 // as blocked with its question kept. "next" asks it once the mode allows, and "answer" takes it in any mode.
+// The session stays registered: the hook must go on recording the mode, or the question would never be asked
+// in the session that parked it.
 function park(c, reason, asking) {
   const { state } = c;
   state.status = 'blocked';
@@ -113,7 +120,6 @@ function park(c, reason, asking) {
   state.asking = { ...asking, parked: true };
   state.step = 'asking';
   tasks.appendTaskNote(c.dir, `- ${day(c)} Waiting for you in ${title(state.stage)}: ${reason}`);
-  tasks.unregisterTask(c.env, c.dir);
   return ended(c);
 }
 
@@ -197,7 +203,7 @@ function raise(c, { checkpoint, headline, ask, detail, report, affected, next, q
   });
   const file = tasks.stageFile(c.dir, state.stage, 'checkpoint', state.round[state.stage], 'md');
   writeFileAtomic(file, asked.summary + '\n');
-  const asking = { checkpoint, reason: decision.reason, then, change, choices, ask: asked, file };
+  const asking = { checkpoint, reason: decision.reason, then, change, choices, ask: asked, file, questions };
   if (!decision.ask) {
     tasks.logApproval(c.dir, entry);
     return park(c, detail, asking);
@@ -403,7 +409,16 @@ function buildWaiting(c) {
       checkpoint: 'policy_exception', headline: 'a policy needs your yes', ask: 'Go on without it?',
       detail: 'A Build agent left something undone because a pod policy needs your yes for it.', report: report.file,
       affected: affects(c, order.repos), next: `${title(after.stage)} starts without it. To allow it, choose "Continue with a change" and say so.`,
-      questions: exceptions.map((x) => x.text), notes: report.notes, then: after, change: { stage: 'build', step: 'ready' },
+      // A question a Build agent asks beside the exception is shown with it, never dropped.
+      questions: unique([...exceptions.map((x) => x.text), ...report.questions]), notes: report.notes, then: after, change: { stage: 'build', step: 'ready' },
+    });
+  }
+  // A Build agent that asks is never passed over because files changed: another agent's work, or an earlier
+  // round's, would otherwise send the task on to Test with the question lost.
+  if (report.questions.length) {
+    return needsYou(c, 'A Build agent needs an answer.', {
+      headline: 'a Build agent needs an answer', questions: report.questions, notes: report.notes, report: report.file,
+      then: after, next: `${title(after.stage)} starts, with the question left open.`, change: { stage: 'build', step: 'ready', reset: [] },
     });
   }
   goTo(c, after.stage, after.step);
@@ -519,8 +534,8 @@ function reviewWaiting(c) {
     : usedUp ? 'Nothing until you answer.' : 'Build runs again with the review\'s findings.';
   // What the Test stage skipped has no checkpoint of its own: it is put before the developer here.
   const skipped = state.round.test > 0 && fs.existsSync(resultFile(c)) ? readJson(resultFile(c)).open : [];
-  // The verdict is the first line. A summary that repeats it is not shown twice.
-  const lines = item.report.summary.filter((line) => !VERDICT_LINE.test(line));
+  // The verdict is the first line. A summary that repeats it is not shown twice; what else that line says is kept.
+  const lines = item.report.summary.map((line) => line.replace(VERDICT_LINE, '')).filter((line) => line.trim() !== '');
   const report = stageReport(c, 'review', got.items, [`Verdict: ${approve ? 'approve' : 'changes'}.`, ...lines], skipped, [], next);
   state.notes = [];
   if (usedUp) {
@@ -565,10 +580,12 @@ async function next(ctx) {
   };
 
   if (state.status === 'done') return done(ended(c));
+  const planMode = () => done(fix([{ message: 'Plan mode is on. The harness cannot write in Plan mode.', fix: 'Leave Plan mode, then continue.' }]));
   if (state.status === 'blocked') {
     // A parked question is asked once the mode allows it. Until then the task keeps waiting, and nothing is written.
     if (!state.asking) return done(ended(c));
     const value = recordedMode(c);
+    if (value === 'plan') return planMode();
     const decision = decide({ checkpoint: state.asking.checkpoint, approvals: c.config.approvals, mode: value, quiet: state.quiet, size: state.size, questions: 0 });
     if (!decision.ask) return done(ended(c));
     state.status = 'running';
@@ -580,7 +597,7 @@ async function next(ctx) {
   if (!fs.existsSync(request) || fs.readFileSync(request, 'utf8').trim() === '') {
     return done(fix([{ message: 'The task has no request yet.', fix: `Write what is asked to ${request}, then continue.` }]));
   }
-  if (recordedMode(c) === 'plan') return done(fix([{ message: 'Plan mode is on. The harness cannot write in Plan mode.', fix: 'Leave Plan mode, then continue.' }]));
+  if (recordedMode(c) === 'plan') return planMode();
 
   if (state.status === 'stopped') state.status = 'running';
   if (state.asking) return done({ action: askAction(state.asking), say: `Checkpoint: ${state.asking.ask.header}.` });
@@ -597,7 +614,9 @@ function answer(ctx, checkpoint, choice, notePath) {
   const state = tasks.readState(ctx.dir);
   if (!state.asking || state.asking.checkpoint !== checkpoint) throw new ConfigError('not-asking', `No question is open for "${checkpoint}" in task ${state.id}.`);
   // A parked question is answered here too, in any mode: the developer's own words are always taken.
-  const offered = state.asking.choices || CHOICES;
+  // A task that waits is already stopped, so "stop" is not an answer to it.
+  const parked = Boolean(state.asking.parked);
+  const offered = (state.asking.choices || CHOICES).filter((c) => !(parked && c === 'stop'));
   if (!offered.includes(choice)) throw new ConfigError('bad-choice', `The answer must be one of: ${offered.join(', ')}.`);
   if (choice === 'change' && (!notePath || !fs.existsSync(notePath))) {
     throw new ConfigError('no-note', 'A change needs a note file with the developer\'s own words.');
@@ -605,7 +624,7 @@ function answer(ctx, checkpoint, choice, notePath) {
   const c = { ...ctx, state, show: [] };
   const { then, change, reason } = state.asking;
   tasks.logApproval(ctx.dir, {
-    at: ctx.now().toISOString(), checkpoint, mode: recordedMode(c), outcome: 'asked', reason, answer: choice, ...(choice === 'change' ? { note: notePath } : {}),
+    at: ctx.now().toISOString(), checkpoint, mode: recordedMode(c), outcome: parked ? 'answered' : 'asked', reason, answer: choice, ...(choice === 'change' ? { note: notePath } : {}),
   });
   if (choice === 'stop') state.status = 'stopped'; // the question stays open: the next call asks it again
   else {

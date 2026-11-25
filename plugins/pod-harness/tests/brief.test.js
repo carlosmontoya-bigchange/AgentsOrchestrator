@@ -247,7 +247,7 @@ test('the report rules give the headings, the line limit for the model and the l
   const rules = (model) => section(renderBrief('reviewer', f.ctx({ model })), 'Pod rules');
   assert.ok(rules('sonnet').includes('Summary, Did, Found, Changed files, Evidence, Questions, Notes, Next'));
   assert.ok(rules('sonnet').includes('- Questions: only what a person must decide for this work. One line each, written as a question. Write "None" when there is nothing.'));
-  assert.ok(rules('sonnet').includes('- Notes: what a person should know later, such as a check to make by hand. Not questions. Write "None" when there is nothing.'));
+  assert.ok(rules('sonnet').includes('- Notes: what a person should know later, such as a check to make by hand, or an assumption you went ahead on. Not questions. Write "None" when there is nothing.'));
   assert.equal(rules('sonnet').includes('Open points'), false);
   assert.ok(rules('sonnet').includes('40 lines at most') && rules('opus').includes('80 lines at most'));
   assert.ok(rules('sonnet').includes('"en"'));

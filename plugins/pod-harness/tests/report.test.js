@@ -59,11 +59,18 @@ test('a missing heading and a six-line summary are problems', () => {
 });
 
 test('"none" in the forms a model writes it means nothing, for questions and for notes', () => {
-  for (const none of ['None', 'none.', 'N/A', '-', '- None', '', 'Nothing.', 'None. Risk noted in the work order.', 'Nothing to decide: the request is clear.', 'No questions.', 'None at this time.']) {
+  for (const none of ['None', 'none.', 'N/A', '-', '- None', '', 'Nothing.', 'None. Risk noted in the work order.', 'Nothing to decide: the request is clear.', 'No questions.', 'None at this time.',
+    'None identified.', 'None found.', '*None*', '_None._', '**None.**', '(none)', 'No.']) {
     const r = parseReport(report({ Questions: none, Notes: none }));
     assert.deepEqual([r.questions, r.notes], [[], []], none);
   }
-  for (const real of ['None of the tests cover the index.', 'Nothing was run against a database.']) {
+  for (const real of ['None of the tests cover the index.', 'Nothing was run against a database.', 'No migration is needed for this change.']) {
+    assert.deepEqual(parseReport(report({ Questions: real })).questions, [real], real);
+  }
+});
+
+test('a line that starts with "none" and then asks is a question: it is never dropped', () => {
+  for (const real of ['None, but should the index be unique?', 'None; should we also drop the old column?', 'Nothing blocks this. Should the label change too?']) {
     assert.deepEqual(parseReport(report({ Questions: real })).questions, [real], real);
   }
 });

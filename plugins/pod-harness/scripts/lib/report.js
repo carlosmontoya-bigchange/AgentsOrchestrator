@@ -7,7 +7,11 @@ const path = require('node:path');
 const HEADINGS = ['Summary', 'Did', 'Found', 'Changed files', 'Evidence', 'Questions', 'Notes', 'Next'];
 // "None" in the forms a model writes it: alone, or followed by punctuation and a remark. "None of the tests..."
 // is a real line and is kept: a line kept by mistake costs one question, a line dropped by mistake loses one.
-const NOTHING = /^(?:-|(?:none(?: at this time| needed)?|nothing(?: to (?:decide|note|add|report))?|n\/a|no(?: open)? (?:questions?|notes?))(?:\s*[.!:;,].*)?)?$/i;
+// A line that asks something is never nothing, however it starts: "None, but should the index be unique?".
+const NOTHING = /^(?:-|(?:no|none(?: (?:at this time|needed|identified|found|required|known|so far))?|nothing(?: (?:to (?:decide|note|add|report)|else|further))?|n\/a|no(?: open| further| outstanding)? (?:questions?|notes?))(?:\s*[.!:;,].*)?)?$/i;
+// The marks a model puts around the word: *None*, _None._, (none).
+const bare = (line) => line.replace(/^[\s*_(]+|[\s*_)]+$/g, '');
+const nothing = (line) => !line.includes('?') && NOTHING.test(bare(line));
 
 const item = (line) => line.trim().replace(/^[-*]\s+/, '');
 
@@ -64,7 +68,7 @@ function parseReport(text) {
   const summary = body('Summary');
   const problems = HEADINGS.filter((h) => !sections.has(h.toLowerCase())).map((h) => `The report has no "## ${h}" heading.`);
   if (summary.length > 5) problems.push(`The Summary has ${summary.length} lines. Five at most.`);
-  const real = (heading) => body(heading).filter((line) => !NOTHING.test(line));
+  const real = (heading) => body(heading).filter((line) => !nothing(line));
   // A model may keep the heading of the earlier version. Its lines are read as questions: the careful reading.
   const asked = sections.has('questions') ? real('Questions') : real('Open points');
   return {

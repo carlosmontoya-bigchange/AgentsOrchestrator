@@ -30,7 +30,7 @@ The request: $ARGUMENTS
 
 If the request starts with `resume ` and a task id, a task is already running. Skip Plan mode, Intake and Start, and go to the Loop with that id.
 
-If words follow the task id, they are the developer's answer. When the task shows a question, or is `blocked`, send them as the change note without asking again.
+If words follow the task id, they are the developer's answer to a task that waits for one. Use them only when the task is `blocked` or shows a "Needs you" question: send them as the change note without asking again. At any other question, raise the dialog as usual.
 
 ## Plan mode
 

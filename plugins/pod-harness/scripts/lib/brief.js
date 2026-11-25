@@ -45,7 +45,7 @@ function podRules(kind, ctx, policies) {
       `- Markdown, in the language "${reports.language || 'en'}", with these \`##\` headings in this order: ${HEADINGS.join(', ')}.`,
       `- Summary: five lines at most. The whole report: ${lineLimit(ctx.config, ctx.model)} lines at most.`,
       '- Questions: only what a person must decide for this work. One line each, written as a question. Write "None" when there is nothing.',
-      '- Notes: what a person should know later, such as a check to make by hand. Not questions. Write "None" when there is nothing.',
+      '- Notes: what a person should know later, such as a check to make by hand, or an assumption you went ahead on. Not questions. Write "None" when there is nothing.',
       '- Return your Summary and the path of your report. Nothing else.',
     );
   }

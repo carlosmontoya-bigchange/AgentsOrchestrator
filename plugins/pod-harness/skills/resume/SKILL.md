@@ -1,7 +1,7 @@
 ---
 name: resume
 description: Continues a pod harness task after a cleared session, a compaction or a stop. Use when someone wants to continue, resume or pick up a task the pod harness started, or asks which pod harness tasks are open.
-argument-hint: [task id]
+argument-hint: [task id] [what should happen]
 model: sonnet
 effort: medium
 ---

@@ -151,6 +151,7 @@ test('task prints the summary before the dialog, and passes on the developer\'s 
   assert.match(text, /An option that is not offered is never sent\./);
   assert.match(text, /answer <id> needs_you change "@<full path of the note>"/);
   assert.match(text, /If words follow the task id, they are the developer's answer/);
+  assert.match(text, /At any other question, raise the dialog as usual./);
   assert.equal(text.includes('the three `options`'), false);
 });
 
