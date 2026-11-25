@@ -14,7 +14,8 @@ class ConfigError extends Error {
 // Finds the frontmatter and, per heading, the lines of its first ```json block.
 function scan(text) {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/); // Windows PowerShell 5.1 writes a byte-order mark
-  const close = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+  const rule = (line) => line.trimEnd() === '---'; // an editor may leave spaces after the dashes
+  const close = rule(lines[0]) ? lines.findIndex((line, i) => i > 0 && rule(line)) : -1;
   if (close === -1) throw new ConfigError('no-frontmatter', 'The file does not start with a settings header between two "---" lines.');
   const meta = {};
   for (const line of lines.slice(1, close)) {

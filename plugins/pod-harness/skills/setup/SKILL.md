@@ -15,9 +15,9 @@ You are guiding a developer through setting up their pod's configuration. The co
 - Ask one question at a time. Give each question a proposed answer the developer can accept.
 - Never ask for something a command already told you.
 - If a command prints `{"error": ...}`, tell the developer what it says in plain words, then fix the input or ask. An error that names a `heading` is about that heading of the file.
-- Pass JSON to `set` in single quotes with the Bash tool. If only PowerShell is available, write the JSON to a file in your scratch folder and pass `@<file>` in its place.
+- Pass JSON to `set` in single quotes with the Bash tool. If only PowerShell is available, write the JSON to a file in your scratch folder and pass `"@<file>"` in its place, with the quotes: PowerShell reads a bare `@` as something else.
 - If a value contains a backslash, such as an Azure DevOps area path (`BigChange\Finance\Midas`), always write the JSON to a file and pass `@<file>`: the shell changes backslashes on a command line. In the file, write each backslash twice, as JSON needs.
-- If the developer gives a home folder for testing, start every command with `POD_HARNESS_HOME=<folder>`.
+- If the developer gives a home folder for testing, start every command with `POD_HARNESS_HOME="<folder>"` in Bash. In PowerShell run `$env:POD_HARNESS_HOME = '<folder>'` once first.
 - Keep your own messages short. Say which step you are on ("Step 3 of 12: repos").
 
 ## Which layer an answer goes to
@@ -51,6 +51,12 @@ With no argument, run all twelve steps in order.
 ### 1. Environment
 
 Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" env-check`. Show each check that is not `ok` with its `fix`. Stop only if `node` or `git` failed. For the others, say what to change and carry on.
+
+Then probe the agents. Say first that this costs a few small agent runs.
+- Dispatch `pod-harness:explorer` once for each model the harness uses, `haiku`, `sonnet` and `opus`, passing that model, with the prompt `Reply with the single word: ready`. A model that does not answer cannot run the agents set to it: name it.
+- Dispatch `pod-harness:orchestrator` with the model `haiku` and the prompt `Dispatch the pod-harness:explorer agent with the prompt 'Reply with the single word: ready' and return its reply.` If `ready` comes back, an agent can start another agent. If not, say that the Orchestrator cannot start the Explorer on this machine and show the `spawn-depth` check.
+
+Report each model that did not answer and whether nesting works. Neither stops set-up.
 
 ### 2. Mode
 
@@ -96,6 +102,7 @@ Author mode, one question each:
 - Optional: links to the wiki pages that explain how to get access to git and to the tracker. Store them as `help`.
 - Which stages run. Proposed: all of Design, Plan, Test, Review and Deliver. Switch one off only if another team does that part.
 - Team limits. Proposed: the defaults from `show` (`teams.max_agents_per_stage`, `teams.max_same_kind`). Change `teams.models` only if the developer asks.
+- "Which skills should each agent use?" Show the skills this session lists. Proposed: none. An agent's brief then names its skills. Store them per agent: `set base Skills '{"backend":["<skill>"]}'`.
 
 ```
 node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" set base Pod '{"name":"<pod>","tracker":{"type":"azure-devops","area_path":"<path>"},"help":{"git":"<link>","tracker":"<link>"}}'
@@ -123,9 +130,10 @@ Then tell the developer this runs each repo's real build and tests once and may 
 
 For each repo that has a path, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" prove <id>` and show `build` and `test`.
 - `missing_env`: name the variables that are not set. Never ask for their values. The developer sets them and you run `prove` again.
-- `fail`: show the end of `tail`. Offer two choices: correct the command (store it with `set <layer> Repos`, then `prove` again), or record that it does not run on this machine:
-  `set personal Repos '[{"id":"<id>","proof":{"build":"not-run","test":"not-run","at":"<time now, ISO>"}}]'`.
-- `not-run` from a timeout: the command took more than ten minutes. Record it as above and say so.
+- `fail`: show the end of `tail`. Offer two choices: correct the command (store it with `set <layer> Repos`, then `prove` again), or record that it does not run on this machine. Record only the command that does not run, with the value `"not-here"`:
+  `set personal Repos '[{"id":"<id>","proof":{"test":"not-here","at":"<time now, ISO>"}}]'` (use `"build"` for the build command, and both when neither runs here).
+  The Test stage of a task then skips that command and lists it as an open point. `not-run` is not that record: it only says the set-up did not get as far as running the command, and a task will run it.
+- `not-run` from a timeout: the command took more than ten minutes. Offer the same record and say so.
 
 ### 7. Permissions
 
@@ -136,7 +144,7 @@ This step offers rules for the developer's own Claude Code settings. Write a rul
 
 ### 8. Trivial paths
 
-A change that touches a "never trivial" path always takes the full route. Run `show` and read `trivial.never`. For each glob, use the Glob tool to count the files it matches in each repo, and show the counts in a table. Ask whether to add or remove globs (proposed: keep them). To change the list, store the whole new list: `set <layer> Trivial '{"never":["<glob>","<glob>"]}'`.
+A change that touches a "never trivial" path always takes the full route. Run `show` and read `trivial.never`. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" trivial-count` and show its counts in a table: how many tracked files each glob matches in each repo. Say that globs ignore case, so `**/migrations/**` also matches a `Migrations` folder. Ask whether to add or remove globs (proposed: keep them). To change the list, store the whole new list: `set <layer> Trivial '{"never":["<glob>","<glob>"]}'`.
 
 ### 9. Policies
 
@@ -190,11 +198,12 @@ Say that three more checkpoints always exist and are not a setting: a task that 
 Ask, one at a time:
 - Who performs outward actions such as a push or a PR: the main session (`main`, proposed) or the Delivery Specialist agent (`agent`).
 - Where manual test cases go (for example a test plan in the tracker, or "none").
+- Author mode only: the name pattern for task branches (proposed: `task/{id}`). It must contain `{id}`, which becomes the task's id. The Build stage works on that branch in each repo. Store it as `branch`.
 - Whether the pod posts to a webhook. If yes, ask for a short name and the **name of the environment variable** that holds its URL. Never the URL.
 - Author mode only: whether the pod has outward actions that must never happen, or must always be confirmed, whatever permission mode a developer uses (proposed: none). Give two examples: never a force push; always confirm a pipeline run. Write each as a Claude Code permission rule, `Tool` or `Tool(pattern)`, such as `Bash(git push --force *)`. A rule matches the command as written, so `git push -f` needs its own rule. Store the lists as `never` and `always_ask`.
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" set <layer> Delivery '{"actor":"main","manual_tests":"<where>","webhooks":[{"id":"teams","env":"TEAMS_WEBHOOK_URL"}],"never":["Bash(git push --force *)"],"always_ask":[]}'
+node "${CLAUDE_PLUGIN_ROOT}/scripts/cli.js" set <layer> Delivery '{"actor":"main","branch":"task/{id}","manual_tests":"<where>","webhooks":[{"id":"teams","env":"TEAMS_WEBHOOK_URL"}],"never":["Bash(git push --force *)"],"always_ask":[]}'
 ```
 
 The harness does not enforce these two lists. They become rules in each developer's own Claude Code settings, offered in step 7. If the developer just gave any, offer them for their own settings now, as step 7 describes.

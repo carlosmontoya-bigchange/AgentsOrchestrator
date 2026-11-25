@@ -38,6 +38,7 @@ function exportBase(pod, outPath, opts = {}) {
   if (insideRepo(path.dirname(out))) {
     throw new ConfigError('inside-repo', `${path.dirname(out)} is inside a git repo. Choose a folder outside every repo, so the base file cannot be committed.`);
   }
+  if (fs.existsSync(out) && !opts.force) throw new ConfigError('exists', `${out} already exists. Nothing was written.`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, base.text);
   return { path: out };
