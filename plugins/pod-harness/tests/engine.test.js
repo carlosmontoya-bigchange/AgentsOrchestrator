@@ -1192,7 +1192,7 @@ test('a Build question left open with Continue is not asked again in a later rou
   assert.deepEqual(t.state().decisions[0], { kind: 'left-open', stage: 'build', questions: [WORDING], question: asked.action.file });
   const leftOpen = `The developer saw these questions and chose to go on without answering. Do not ask them again and do not decide them yourself. Do what your job allows without them, and say under Notes what you left:\n- ${WORDING}\n\n`;
   assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(leftOpen));
-  build(t, undefined, SAFE, { questions: 'Which wording should the greeting have?' });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which wording should the greeting have?' }));
   const again = await t.next();
   assert.deepEqual([again.action.type, again.stage], ['run', 'test'], 'asked once for this work order');
   assert.ok(read(again.show[0].report).includes('- Which wording should the greeting have?'), 'the stage report keeps it');
@@ -1216,7 +1216,7 @@ test('a new work order starts the count again: its first Build question is asked
   t.answer('task_grew', 'continue');
   await understood(t);
   assert.equal((await t.next()).action.stage, 'build');
-  build(t, undefined, SAFE, { questions: 'Should the old greeting stay?' });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Should the old greeting stay?' }));
   const r = await t.next();
   assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: a Build agent needs an answer, 1 question. What should happen?']);
 });
@@ -1227,7 +1227,7 @@ test('an answer in words starts the count again: what Build asks after it is ask
   fs.writeFileSync(note, 'Say "hello, pod".\n');
   t.answer('needs_you', 'change', note);
   assert.equal((await t.next()).action.stage, 'build');
-  build(t, undefined, SAFE, { questions: 'Should the old greeting stay?' });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Should the old greeting stay?' }));
   assert.equal((await t.next()).action.question, 'Needs you: a Build agent needs an answer, 1 question. What should happen?');
 });
 
@@ -1296,7 +1296,7 @@ test('a policy exception left with Continue is not listed as left open; the ques
   await backToBuild(t, 'policy_exception');
   assert.deepEqual(t.state().decisions, [{ kind: 'left-open', stage: 'build', questions: [name], question: asked.action.file }]);
   assert.equal(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes('drop the old column'), false, 'going on without it is not a yes');
-  build(t, undefined, SAFE, { questions: name });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: name }));
   assert.equal((await t.next()).action.type, 'run', 'the question was shown beside the exception: it is not asked a second time');
 });
 
@@ -1364,6 +1364,7 @@ test('Continue there starts the Review with the failing test result', async () =
   t.answer('needs_you', 'continue');
   const review = await t.next();
   assert.deepEqual([review.stage, review.action.waves[0][0].key, t.state().round.build], ['review', 'reviewer', 2]);
+  assert.equal(t.state().fix, null, 'the failure the developer passed over is not carried into a later Build round');
   assert.ok(read(stageFile(t.dir, 'review', 'reviewer', 1, 'brief.md')).includes(stageFile(t.dir, 'test', 'result', 1, 'json')));
 });
 
@@ -1380,16 +1381,32 @@ test('Continue with a change there runs Build again with the answer and the Test
   assert.ok(brief.includes(note) && brief.includes(stageFile(t.dir, 'test', 'tester', 1, 'md')));
 });
 
-test('a round sent back by the review that changes nothing asks with two choices', async () => {
+test('a round sent back by the review that changes nothing goes on, as before', async () => {
   const t = await task(TRIVIAL);
   await t.next();
   await throughReview(t, 'Verdict: changes');
   t.answer((await t.next()).action.checkpoint, 'continue');
   assert.deepEqual([(await t.next()).action.stage, t.state().round.build], ['build', 2]);
   t.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.deepEqual([(await t.next()).action.type, t.state().stage], ['run', 'test']);
+});
+
+test('a round started by the developer\'s answer that has nothing to change goes on to Test', async () => {
+  const { t } = await buildAsks();
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Yes, keep it.\n');
+  t.answer('needs_you', 'change', note);
+  assert.equal((await t.next()).action.stage, 'build');
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.deepEqual([(await t.next()).action.type, t.state().stage], ['run', 'test'], 'the branch holds the work: nothing more to change is no dead end');
+});
+
+test('a policy exception in a round that changes nothing after failing tests is still put to the developer', async () => {
+  const t = await sentBackByTests();
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: '- Policy exception: pod-migration - drop the old column' }));
   const r = await t.next();
-  assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: Build changed no file. What should happen?']);
-  assert.deepEqual(r.action.options.map((o) => o.label), ['Continue with a change', 'Stop here']);
+  assert.equal(r.action.checkpoint, 'policy_exception');
+  assert.ok(r.action.summary.includes('drop the old column'));
 });
 
 test('a later round that changes a file goes on, though the branch already had changes', async () => {
@@ -1402,12 +1419,14 @@ test('a missing report dispatched again keeps the round\'s starting point', asyn
   const t = await sentBackByTests();
   const before = t.state().build_before;
   assert.deepEqual(Object.keys(before), [APP]);
+  // The agent changed a file, and its report went missing.
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod, round 2\n' });
   t.later(60);
   const again = await t.next();
   assert.deepEqual([again.action.type, again.action.stage, t.state().round.build], ['dispatch', 'build', 2]);
   assert.deepEqual(t.state().build_before, before);
   t.report('build', 'backend', rep({ evidence: SAFE }));
-  assert.equal((await t.next()).action.checkpoint, 'needs_you');
+  assert.deepEqual([(await t.next()).action.type, t.state().stage], ['run', 'test'], 'measured from the round\'s start, not from the second dispatch');
 });
 
 test('a Build round started before 0.2.3 has no starting point: the branch is measured, as before', async () => {
@@ -1456,6 +1475,16 @@ test('the work order written after the tests kept failing is asked in Auto, as T
   assert.deepEqual(readApprovals(t.dir).map((e) => [e.checkpoint, e.outcome, e.reason]), [
     ['work_order', 'skipped', 'auto-nothing-to-decide'], ['task_grew', 'asked', 'auto-decision'],
   ]);
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Do not touch the test script.\n');
+  t.answer('task_grew', 'change', note);
+  assert.deepEqual([(await t.next()).action.stage, t.state().round.understand], ['understand', 3]);
+  const brief = read(stageFile(t.dir, 'understand', 'orchestrator', 3, 'brief.md'));
+  assert.ok(brief.includes(note) && brief.includes(stageFile(t.dir, 'test', 'tester', 3, 'md')), 'the changed plan still has the failing tests before it');
+  t.order();
+  t.report('understand', 'orchestrator');
+  r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint], ['ask', 'task_grew'], 'the plan the developer changed is shown too');
   t.answer('task_grew', 'continue');
   assert.equal((await t.next()).action.stage, 'build');
 });

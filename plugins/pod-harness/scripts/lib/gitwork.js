@@ -96,22 +96,24 @@ function measureRepo(repo, base, never, opts = {}) {
   };
 }
 
-// What a Build round is compared by: the repo's whole difference from its base, new files included. The same
-// tree gives the same value, so a round that leaves the tree as it found it is seen to have changed nothing.
+// What a Build round is compared by: every file that differs from the base, tracked or new, by name and
+// content. The same tree gives the same value, staged or not, so a round that leaves the tree as it found it is
+// seen to have changed nothing. Git only lists the names: no patch is made, so the developer's own diff tool is
+// never started.
 function fingerprintRepo(repo, base, opts = {}) {
   const run = opts.run || runner.run;
-  const git = (...args) => {
+  const names = (...args) => {
     const r = run('git', ['-C', repo.path, ...args], { timeoutMs: 120000 });
     if (r.code !== 0) throw new ConfigError('git-failed', `git ${args[0]} failed in ${repo.path}: ${r.stderr.trim().slice(0, 300)}`);
-    return r.stdout;
+    return r.stdout.split('\0').filter(Boolean);
   };
-  // The index line names each file's content in full, so a binary file needs no patch text to be told apart.
-  const hash = crypto.createHash('sha256').update(git('diff', '--full-index', '--no-renames', base));
-  for (const file of git('ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean).sort()) {
+  const files = new Set([...names('diff', '--name-only', '--no-renames', '-z', base), ...names('ls-files', '--others', '--exclude-standard', '-z')]);
+  const hash = crypto.createHash('sha256');
+  for (const file of [...files].sort()) {
     hash.update(`\0${file}\0`);
     try {
       hash.update(fs.readFileSync(path.join(repo.path, file)));
-    } catch { /* a nested repo is listed as a folder: its name alone counts */ }
+    } catch { /* deleted, or a nested repo listed as a folder: the name alone counts */ }
   }
   return hash.digest('hex');
 }

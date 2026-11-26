@@ -214,6 +214,21 @@ test('the fingerprint is the same for an unchanged tree and differs after any ch
   step({ 'ignored/x.txt': 'x\n' }, 'an ignored file changes nothing', true);
 });
 
+test('the fingerprint makes no patch: the developer\'s own diff tool is never started, and staging changes nothing', () => {
+  const r = repo({ 'src/a.cs': 'one\n', 'src/gone.cs': 'gone\n' });
+  const { base } = prepareRepo(r, 'task/1');
+  git(r.path, 'config', 'diff.external', 'node -e "process.exit(1)"');
+  writeFiles(r.path, { 'src/a.cs': 'two\n', 'src/new.cs': 'new\n' });
+  const before = fingerprintRepo(r, base);
+  git(r.path, 'add', '-A');
+  assert.equal(fingerprintRepo(r, base), before, 'the same tree, staged');
+  writeFiles(r.path, { 'src/gone.cs': null });
+  const deleted = fingerprintRepo(r, base);
+  assert.notEqual(deleted, before, 'a deleted file');
+  writeFiles(r.path, { 'src/gone.cs': 'gone\n', 'src/a.cs': 'one\n' });
+  assert.notEqual(fingerprintRepo(r, base), deleted, 'put back as it was');
+});
+
 test('the fingerprint does not throw on a nested repo among the new files', () => {
   const r = repo();
   const { base } = prepareRepo(r, 'task/1');
