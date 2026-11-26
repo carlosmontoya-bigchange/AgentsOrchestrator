@@ -6,7 +6,7 @@ const path = require('node:path');
 const { writeFileAtomic } = require('./store.js');
 const { commandFor } = require('./validate.js');
 const { stageFile } = require('./taskstore.js');
-const { HEADINGS, lineLimit } = require('./report.js');
+const { HEADINGS, lineLimit, unique } = require('./report.js');
 
 const STAGE = { explorer: 'understand', orchestrator: 'understand', build: 'build', tester: 'test', reviewer: 'review' };
 const MARKER = {
@@ -117,6 +117,18 @@ function repoSection(kind, ctx) {
 
 const list = (title, items) => (items.length ? [title, ...items.map((i) => `- ${i}`)] : []);
 
+// What the developer decided at a question holds for the rest of the task, so every later brief names it.
+// A task started before 0.2.2 has no list.
+function decided(state) {
+  const all = records(state.decisions);
+  const answers = all.filter((d) => d.kind === 'answer').map((d) => `${tick(d.note)}, the answer to ${tick(d.question)}`);
+  const open = unique(all.filter((d) => d.kind === 'left-open').flatMap((d) => records(d.questions)));
+  return [
+    ...list('The developer answered these. Read them. They are decided. Do not ask them again:', answers),
+    ...list('The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:', open),
+  ];
+}
+
 function taskSection(kind, ctx, stage, key) {
   const { state, dir, inputs } = ctx;
   const round = state.round[stage];
@@ -190,7 +202,7 @@ function taskSection(kind, ctx, stage, key) {
     out.push(...list('The reports of the stages before you:', records(inputs.reports).map(tick)), ...notes, 'List under Found what a person must test by hand.');
   }
 
-  out.push('', `Write your report to ${tick(stageFile(dir, stage, key, round, 'md'))}.`);
+  out.push(...decided(state), '', `Write your report to ${tick(stageFile(dir, stage, key, round, 'md'))}.`);
   return out;
 }
 

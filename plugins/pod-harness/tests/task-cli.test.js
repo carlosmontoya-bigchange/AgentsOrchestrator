@@ -198,3 +198,15 @@ test('the test command keeps what another command wrote to the state while the t
   assert.equal((await taskCli(h, 'test', '7')).out.result, 'pass');
   assert.deepEqual([readState(dir).quiet, readState(dir).step, readState(dir).round.test], [true, 'ran', 1]);
 });
+
+test('next leaves the session\'s registration alone when it already names the task', async () => {
+  const h = podHome();
+  const { out } = await taskCli(h, 'start', '--item', '9', '--predict', 'full', '--session', 'sess-9');
+  const file = path.join(h.dir, 'sessions', 'sess-9.json');
+  const same = JSON.stringify({ dir: out.dir }, null, 2); // the same value in another layout: a rewrite would show
+  fs.writeFileSync(file, same);
+  await taskCli(h, 'next', '9', '--session', 'sess-9');
+  assert.equal(fs.readFileSync(file, 'utf8'), same);
+  await taskCli(h, 'next', '9', '--session', 'sess-other');
+  assert.equal(sessionTask(h.env, 'sess-other'), out.dir);
+});

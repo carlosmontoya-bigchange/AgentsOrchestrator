@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pluginRoot, APP, WEB, podHome, podConfig, taskCli, git, writeFiles } = require('./helpers');
 const store = require('../scripts/lib/store.js');
-const { readState, writeMode, readApprovals, sessionTask, stageFile } = require('../scripts/lib/taskstore.js');
+const { readState, writeState, writeMode, readApprovals, sessionTask, stageFile } = require('../scripts/lib/taskstore.js');
 const engine = require('../scripts/lib/engine.js');
 
 const { spawnSync } = require('node:child_process');
@@ -1134,4 +1134,194 @@ test('a task that is done says so when nothing is left open', async () => {
   await t.next();
   await throughReview(t);
   assert.ok((await t.next()).action.lines.includes('The last review left nothing open.'));
+});
+
+// ---- what the developer decided travels with the task (0.2.2)
+
+const WORDING = 'Which wording do you want?';
+
+// A trivial task whose Build agent changed a file and asked: "Needs you" is open.
+async function buildAsks(opts) {
+  const t = await task(TRIVIAL, opts);
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: WORDING }));
+  return { t, asked: await t.next() };
+}
+
+// From an open Build question to the next Build round: Continue, the tests, a review that asks for changes.
+async function backToBuild(t, checkpoint = 'needs_you') {
+  t.answer(checkpoint, 'continue');
+  assert.equal((await t.next()).action.type, 'run');
+  await t.runTests();
+  assert.equal((await t.next()).action.stage, 'review');
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: changes' }));
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  assert.equal((await t.next()).action.stage, 'build');
+}
+
+test('an answer given in Understand is kept and named in the briefs of Build and Review', async () => {
+  const t = await task(SMALL);
+  await t.next();
+  t.order(order({ agents: [], questions: ['Which table should the index cover?'] }));
+  t.report('understand', 'orchestrator');
+  const asked = await t.next();
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Table dbo.Customer, column Email.\n');
+  t.answer('needs_you', 'change', note);
+  assert.deepEqual(t.state().decisions, [{ kind: 'answer', stage: 'understand', note, question: asked.action.file }]);
+  await understood(t);
+  assert.equal(t.state().decisions.length, 1, 'Continue where nothing was asked records nothing');
+  assert.equal((await t.next()).action.stage, 'build');
+  const decided = `They are decided. Do not ask them again:\n- \`${note}\`, the answer to \`${asked.action.file}\``;
+  assert.ok(read(stageFile(t.dir, 'build', 'backend', 1, 'brief.md')).includes(decided));
+  await throughReview(t);
+  assert.ok(read(stageFile(t.dir, 'review', 'reviewer', 1, 'brief.md')).includes(decided));
+});
+
+test('a Build question left open with Continue is not asked again in a later round, and the end lines name it', async () => {
+  const { t, asked } = await buildAsks();
+  assert.deepEqual(asked.action.summary.split('\n'), [
+    '### Needs you: a Build agent needs an answer', `Task ${t.id}, App, branch task/${t.id}`, '',
+    '**You decide**', `- ${WORDING}`, '',
+    '**Next:** Test starts, with the question left open.', 'The report: build/stage-report.md',
+  ]);
+  await backToBuild(t);
+  assert.deepEqual(t.state().decisions[0], { kind: 'left-open', stage: 'build', questions: [WORDING], question: asked.action.file });
+  const leftOpen = `The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:\n- ${WORDING}\n\n`;
+  assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(leftOpen));
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which wording should the greeting have?' }));
+  const again = await t.next();
+  assert.deepEqual([again.action.type, again.stage], ['run', 'test'], 'asked once for this work order');
+  assert.ok(read(again.show[0].report).includes('- Which wording should the greeting have?'), 'the stage report keeps it');
+  assert.equal(again.show[0].lines.at(-1), 'Not asked again, left open: Which wording should the greeting have?');
+  assert.deepEqual(t.state().decisions.at(-1), { kind: 'not-asked', stage: 'build', questions: ['Which wording should the greeting have?'], question: again.show[0].report });
+  await t.runTests();
+  assert.equal((await t.next()).action.stage, 'review');
+  const review = read(stageFile(t.dir, 'review', 'reviewer', 2, 'brief.md'));
+  assert.ok(review.includes(leftOpen) && !review.includes('Which wording should the greeting have?'), 'the developer did not see the later question: no brief says so');
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve' }));
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  const { lines } = (await t.next()).action;
+  assert.deepEqual(lines.filter((l) => l.startsWith('Left open in Build')), [`Left open in Build: ${WORDING}`, 'Left open in Build: Which wording should the greeting have?']);
+});
+
+test('a new work order starts the count again: its first Build question is asked', async () => {
+  const { t } = await buildAsks();
+  await backToBuild(t);
+  build(t, { 'src/a.cs': 'a\n', 'src/b.cs': 'b\n', 'src/c.cs': 'c\n' });
+  assert.equal((await t.next()).action.checkpoint, 'task_grew');
+  t.answer('task_grew', 'continue');
+  await understood(t);
+  assert.equal((await t.next()).action.stage, 'build');
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Should the old greeting stay?' }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: a Build agent needs an answer, 1 question. What should happen?']);
+});
+
+test('an answer in words starts the count again: what Build asks after it is asked', async () => {
+  const { t } = await buildAsks();
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Say "hello, pod".\n');
+  t.answer('needs_you', 'change', note);
+  assert.equal((await t.next()).action.stage, 'build');
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Should the old greeting stay?' }));
+  assert.equal((await t.next()).action.checkpoint, 'needs_you');
+});
+
+test('when the work order holds questions, the checkpoint shows those and not the report\'s wording as well', async () => {
+  const none = await task(SMALL);
+  await none.next();
+  none.order(order({ agents: [], questions: ['Which table should the index cover?'] }));
+  none.report('understand', 'orchestrator', rep({ questions: 'Which table is the index for: Customer or Orders?' }));
+  const r = await none.next();
+  assert.equal(r.action.question, 'Needs you: the Orchestrator needs an answer, 1 question. What should happen?');
+  assert.equal(r.action.summary.includes('Customer or Orders'), false);
+
+  const some = await task(SMALL, { mode: 'auto' });
+  await some.next();
+  some.order(order({ questions: ['Should the index be unique?'] }));
+  some.report('understand', 'orchestrator', rep({ questions: 'Is a unique index wanted here?' }));
+  assert.equal((await some.next()).action.question, 'Work order: size S, 1 question. Start Build?');
+
+  // A work order without questions still shows what the Orchestrator's report asks.
+  const report = await task(SMALL, { mode: 'auto' });
+  await report.next();
+  report.order();
+  report.report('understand', 'orchestrator', rep({ questions: 'Is a unique index wanted here?' }));
+  assert.equal((await report.next()).action.question, 'Work order: size S, 1 question. Start Build?');
+});
+
+// A state file as 0.2.1 wrote it.
+function asBefore(t) {
+  const old = t.state();
+  delete old.decisions;
+  delete old.build_asked;
+  writeState(t.dir, old);
+}
+
+test('a task started before 0.2.2 has no list of decisions: it is read as empty', async () => {
+  const answered = await stuckInBuild();
+  await answered.next();
+  asBefore(answered);
+  const note = answered.file('change-1.md');
+  fs.writeFileSync(note, 'Say "hello, pod".\n');
+  answered.answer('needs_you', 'change', note);
+  assert.deepEqual(answered.state().decisions.map((d) => [d.kind, d.note]), [['answer', note]]);
+  assert.equal((await answered.next()).action.stage, 'build');
+
+  const { t: left } = await buildAsks();
+  asBefore(left);
+  left.answer('needs_you', 'continue');
+  assert.deepEqual(left.state().decisions.map((d) => d.kind), ['left-open']);
+
+  const plain = await task(TRIVIAL, { mode: 'bypassPermissions' });
+  await plain.next();
+  asBefore(plain);
+  await throughReview(plain);
+  const end = await plain.next();
+  assert.deepEqual([end.action.status, end.action.lines.some((l) => l.startsWith('Left open'))], ['done', false]);
+});
+
+test('a policy exception left with Continue is not listed as left open; the question beside it is, and is not asked again', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  const name = 'Which name should the new column have?';
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: `- Policy exception: pod-migration - drop the old column\n- ${name}` }));
+  const asked = await t.next();
+  assert.equal(asked.action.checkpoint, 'policy_exception');
+  await backToBuild(t, 'policy_exception');
+  assert.deepEqual(t.state().decisions, [{ kind: 'left-open', stage: 'build', questions: [name], question: asked.action.file }]);
+  assert.equal(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes('drop the old column'), false, 'going on without it is not a yes');
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: name }));
+  assert.equal((await t.next()).action.type, 'run', 'the question was shown beside the exception: it is not asked a second time');
+});
+
+test('Continue at a parked Build question records it and goes on to Test', async () => {
+  const { t, asked } = await buildAsks({ mode: 'bypassPermissions' });
+  assert.equal(asked.action.status, 'blocked');
+  t.answer('needs_you', 'continue');
+  assert.deepEqual(t.state().decisions.map((d) => [d.kind, d.questions]), [['left-open', [WORDING]]]);
+  assert.equal((await t.next()).action.type, 'run');
+});
+
+test('a question left open at the review is not printed as left open in Build', async () => {
+  const t = await task(TRIVIAL, { mode: 'auto' });
+  await t.next();
+  await throughReview(t);
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', questions: 'Should the greeting be translated?' }));
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  const { lines } = (await t.next()).action;
+  assert.deepEqual(lines.filter((l) => l.startsWith('Left open')), ['Left open at the review: Should the greeting be translated?']);
+});
+
+test('an M work order with a question of its own still says that Design and Plan are skipped', async () => {
+  const t = await task(FULL);
+  await t.next();
+  t.order(order({ size: 'M', questions: ['Should the index be unique?'] }));
+  t.report('understand', 'orchestrator', rep({ questions: 'Is a unique index wanted here?' }));
+  const r = await t.next();
+  assert.equal(r.action.question, 'Work order: size M, 2 questions. Start Build?');
+  assert.ok(r.action.summary.includes('- Should the index be unique?\n- The Design and Plan stages are not in this version'));
 });

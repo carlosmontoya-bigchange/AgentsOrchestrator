@@ -40,7 +40,8 @@ function decide({ checkpoint, approvals, mode, quiet, size, questions }) {
 function question({ checkpoint, id, headline, ask, detail, affects = [], next, questions = [], notes = 0, report, choices = CHOICES, again }) {
   const [name, header] = NAMES[checkpoint];
   const summary = [`### ${name}: ${headline}`];
-  if (detail) summary.push(detail);
+  // A detail that only repeats the title is not shown twice.
+  if (detail && detail.replace(/\.$/, '').toLowerCase() !== headline.toLowerCase()) summary.push(detail);
   summary.push([`Task ${id}`, ...affects].join(', '));
   if (questions.length) {
     const more = questions.length - MAX_QUESTIONS;

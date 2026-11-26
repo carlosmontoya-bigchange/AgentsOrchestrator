@@ -36,6 +36,8 @@ const repoOf = (c, id) => (c.config.repos || []).find((r) => r.id === id) || { i
 const day = (c) => c.now().toISOString().slice(0, 10);
 const goTo = (c, stage, step) => { c.state.stage = stage; c.state.step = step; };
 const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// What the developer decided at a question. Never emptied. A task started before 0.2.2 has no list.
+const decisions = (state) => state.decisions || [];
 
 const stillWorking = (c) => Boolean(c.state.dispatched) && c.now() - new Date(c.state.dispatched) < GRACE_MS;
 const working = (c) => ({ action: { type: 'wait', message: STILL_WORKING }, say: say(c.state.stage, 'the agents are still working.') });
@@ -95,7 +97,8 @@ function endLines(c) {
       `To go on, say what should happen: /pod-harness:resume ${state.id}.`, NOT_DONE];
   }
   const ran = ['understand', 'build', 'test', 'review'].filter((s) => state.round[s] > 0).map((s) => `${title(s)} ${state.round[s]} ${state.round[s] === 1 ? 'round' : 'rounds'}`);
-  const lines = [`Task ${state.id} is done. Size ${state.size}, ${state.path} path.`, `Stages: ${ran.join(', ')}.`, ...repos, ...reports];
+  const open = unique(decisions(state).filter((d) => d.kind !== 'answer' && d.stage === 'build').flatMap((d) => d.questions));
+  const lines = [`Task ${state.id} is done. Size ${state.size}, ${state.path} path.`, `Stages: ${ran.join(', ')}.`, ...repos, ...reports, ...open.map((q) => `Left open in Build: ${q}`)];
   if (state.round.review > 0) {
     const review = readReport(tasks.stageFile(c.dir, 'review', 'reviewer', state.round.review, 'md'));
     const left = review ? [...review.questions.map((q) => `Left open at the review: ${q}`), ...review.notes.map((n) => `Note from the review: ${n}`)] : [];
@@ -184,7 +187,8 @@ function proceed(c, target) {
 // Raises a checkpoint. Whether it is asked follows the permission mode. One that is not asked is logged, and
 // the task goes on as "Continue" would. "Needs you" has no such default: not asked, the task is parked.
 // then: where "Continue" leads, absent when it is not offered. change: where "Continue with a change" leads.
-function raise(c, { checkpoint, headline, ask, detail, report, affected, next, questions, notes = [], then, change, again }) {
+// open: the questions a Continue leaves open, when that is not all of what is shown.
+function raise(c, { checkpoint, headline, ask, detail, report, affected, next, questions, open, notes = [], then, change, again }) {
   const { state } = c;
   const value = recordedMode(c);
   const decision = decide({ checkpoint, approvals: c.config.approvals, mode: value, quiet: state.quiet, size: state.size, questions: questions.length });
@@ -203,7 +207,7 @@ function raise(c, { checkpoint, headline, ask, detail, report, affected, next, q
   });
   const file = tasks.stageFile(c.dir, state.stage, 'checkpoint', state.round[state.stage], 'md');
   writeFileAtomic(file, asked.summary + '\n');
-  const asking = { checkpoint, reason: decision.reason, then, change, choices, ask: asked, file, questions };
+  const asking = { checkpoint, reason: decision.reason, then, change, choices, ask: asked, file, questions, ...(open ? { open } : {}) };
   if (!decision.ask) {
     tasks.logApproval(c.dir, entry);
     return park(c, detail, asking);
@@ -223,6 +227,10 @@ function needsYou(c, reason, { headline, questions = [], notes = [], report, the
     next: next || 'Nothing runs until you answer.', questions, notes, then, change, again: AGAIN[change.stage],
   });
 }
+
+// The Orchestrator may ask one thing in its work order and again, in other words, in its report. When the work
+// order holds questions, its list is the one the checkpoint shows.
+const shown = (ordered, report, asks = ordered) => (ordered.length ? unique(asks) : report.questions);
 
 const briefContext = (c, extra) => ({ config: c.config, state: c.state, dir: c.dir, platform: c.platform, ...extra });
 
@@ -299,7 +307,7 @@ function understandWaiting(c) {
     const report = stageReport(c, 'understand', entries, [`Size ${order.size}: ${order.summary}`, 'No Build agent: the Orchestrator needs an answer first.', ...found],
       order.questions, [], 'Nothing until you answer.');
     return needsYou(c, 'The Orchestrator cannot plan this until you answer.', {
-      headline: 'the Orchestrator needs an answer', questions: report.questions, notes: report.notes, report: report.file,
+      headline: 'the Orchestrator needs an answer', questions: shown(order.questions, report), notes: report.notes, report: report.file,
       change: { stage: 'understand', step: 'ready', reset: [] },
     });
   }
@@ -315,7 +323,7 @@ function understandWaiting(c) {
   const grew = old !== null && RANK.indexOf(order.size) > RANK.indexOf(old);
   return raise(c, {
     checkpoint: grew ? 'task_grew' : 'work_order', headline: grew ? `from ${old} to ${order.size}` : `size ${order.size}`, ask: 'Start Build?', detail: order.summary,
-    report: report.file, affected: affects(c, order.repos), next: `Build starts: ${agents}.`, questions: report.questions, notes: report.notes,
+    report: report.file, affected: affects(c, order.repos), next: `Build starts: ${agents}.`, questions: shown(order.questions, report, asks), notes: report.notes,
     then: { stage: 'build', step: 'ready' }, change: { stage: 'understand', step: 'ready' },
   });
 }
@@ -405,7 +413,11 @@ function buildWaiting(c) {
     });
   }
   if (exceptions.length) {
+    // A question shown beside the exception counts as asked. Going on without the exception is not a yes to
+    // it, so only the questions are kept as left open.
+    if (report.questions.length) state.build_asked = state.round.understand;
     return raise(c, {
+      open: report.questions,
       checkpoint: 'policy_exception', headline: 'a policy needs your yes', ask: 'Go on without it?',
       detail: 'A Build agent left something undone because a pod policy needs your yes for it.', report: report.file,
       affected: affects(c, order.repos), next: `${title(after.stage)} starts without it. To allow it, choose "Continue with a change" and say so.`,
@@ -416,10 +428,18 @@ function buildWaiting(c) {
   // A Build agent that asks is never passed over because files changed: another agent's work, or an earlier
   // round's, would otherwise send the task on to Test with the question lost.
   if (report.questions.length) {
-    return needsYou(c, 'A Build agent needs an answer.', {
-      headline: 'a Build agent needs an answer', questions: report.questions, notes: report.notes, report: report.file,
-      then: after, next: `${title(after.stage)} starts, with the question left open.`, change: { stage: 'build', step: 'ready', reset: [] },
-    });
+    // Asked once for each work order. After a Continue, what later rounds ask is shown and kept, and not put
+    // to the developer again. An answer in words, or a new work order, starts the count again.
+    if (state.build_asked !== state.round.understand) {
+      state.build_asked = state.round.understand;
+      return needsYou(c, 'A Build agent needs an answer.', {
+        headline: 'a Build agent needs an answer', questions: report.questions, notes: report.notes, report: report.file,
+        then: after, next: `${title(after.stage)} starts, with the question left open.`, change: { stage: 'build', step: 'ready', reset: [] },
+      });
+    }
+    // The developer has not seen these, so no brief calls them seen: the Reviewer reads them in Build's report.
+    state.decisions = [...decisions(state), { kind: 'not-asked', stage: 'build', question: report.file, questions: report.questions }];
+    facts.push(...report.questions.map((q) => `Not asked again, left open: ${q}`)); // the lines the session shows
   }
   goTo(c, after.stage, after.step);
   return null;
@@ -629,7 +649,16 @@ function answer(ctx, checkpoint, choice, notePath) {
   if (choice === 'stop') state.status = 'stopped'; // the question stays open: the next call asks it again
   else {
     state.status = 'running';
-    if (choice === 'change') state.notes.push(notePath);
+    // What the developer decides here holds for the rest of the task: every later brief names it.
+    const asked = { stage: state.stage, question: state.asking.file };
+    if (choice === 'change') {
+      state.notes.push(notePath);
+      state.decisions = [...decisions(state), { kind: 'answer', ...asked, note: notePath }];
+      state.build_asked = null;
+    } else {
+      const open = state.asking.open || state.asking.questions || [];
+      if (open.length) state.decisions = [...decisions(state), { kind: 'left-open', ...asked, questions: open }];
+    }
     proceed(c, choice === 'change' ? change : then);
   }
   tasks.writeState(ctx.dir, state);

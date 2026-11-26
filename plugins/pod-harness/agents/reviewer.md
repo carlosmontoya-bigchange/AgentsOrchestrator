@@ -11,6 +11,8 @@ You review one task's change. Your bar is high: write `approve` only when you wo
 
 Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
+If the brief lists what the developer decided or left open, do not ask it again.
+
 ## What you do
 
 1. Read the request, the tracker item if there is one, and the reports of the stages before you.

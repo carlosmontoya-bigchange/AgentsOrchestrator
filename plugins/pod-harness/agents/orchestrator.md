@@ -12,6 +12,8 @@ You size one task and decide who builds it. You write the work order. You build 
 
 Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
+If the brief lists what the developer decided or left open, do not ask it again.
+
 ## What you do
 
 1. Read the request the brief names, and the tracker item if there is one.
