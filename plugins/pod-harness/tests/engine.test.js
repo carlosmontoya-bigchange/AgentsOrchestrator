@@ -503,8 +503,8 @@ test('a third test failure re-routes to the full Orchestrator; after two more re
 
   t.order();
   t.report('understand', 'orchestrator');
-  assert.equal((await t.next()).action.checkpoint, 'work_order');
-  t.answer('work_order', 'continue');
+  assert.equal((await t.next()).action.checkpoint, 'task_grew', 'a plan made after the tests kept failing is always shown');
+  t.answer('task_grew', 'continue');
   assert.equal((await t.next()).action.stage, 'build');
   for (let i = 0; i < 2; i++) {
     build(t);
@@ -1425,4 +1425,29 @@ test('under Bypass permissions a round that changes nothing after failing tests 
   const r = await t.next();
   assert.deepEqual([r.action.type, r.action.status, t.state().asking.checkpoint, t.state().round.review], ['end', 'blocked', 'needs_you', 0]);
   assert.ok(r.action.lines.some((l) => l.includes('Build changed nothing and the tests still fail')), r.action.lines.join(' | '));
+});
+
+// ---- a plan made after the loop was used up (0.2.3)
+
+test('the work order written after the tests kept failing is asked in Auto, as Task grew', async () => {
+  const t = await task(SMALL, { setup: failingTests, mode: 'auto' });
+  await t.next();
+  t.order();
+  t.report('understand', 'orchestrator');
+  assert.equal((await t.next()).action.stage, 'build', 'a first work order with no question is not asked in Auto');
+  build(t);
+  let r = await failTests(t);
+  for (let i = 0; i < 2; i++) { build(t); r = await failTests(t); }
+  assert.deepEqual([r.stage, t.state().returns.reroute], ['understand', 1]);
+  t.order();
+  t.report('understand', 'orchestrator');
+  r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint], ['ask', 'task_grew']);
+  assert.equal(r.action.question, 'Task grew: a new plan after the tests kept failing. Start Build?');
+  assert.deepEqual(r.action.options.map((o) => o.label), ['Continue', 'Continue with a change', 'Stop here']);
+  assert.deepEqual(readApprovals(t.dir).map((e) => [e.checkpoint, e.outcome, e.reason]), [
+    ['work_order', 'skipped', 'auto-nothing-to-decide'], ['task_grew', 'asked', 'auto-decision'],
+  ]);
+  t.answer('task_grew', 'continue');
+  assert.equal((await t.next()).action.stage, 'build');
 });

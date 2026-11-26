@@ -312,6 +312,8 @@ function understandWaiting(c) {
     });
   }
 
+  // A plan made because the tests kept failing replaces one that did not work: the developer sees it, in Auto too.
+  const replanned = Boolean(state.fix) && state.fix.from === 'test';
   state.notes = [];
   state.fix = null;
   const agents = withKeys(order).map((a) => `${a.key} in ${repoOf(c, a.repo).name}`).join(', ');
@@ -322,7 +324,8 @@ function understandWaiting(c) {
   const report = stageReport(c, 'understand', entries, facts, asks, [], `Build: ${agents}.`);
   const grew = old !== null && RANK.indexOf(order.size) > RANK.indexOf(old);
   return raise(c, {
-    checkpoint: grew ? 'task_grew' : 'work_order', headline: grew ? `from ${old} to ${order.size}` : `size ${order.size}`, ask: 'Start Build?', detail: order.summary,
+    checkpoint: grew || replanned ? 'task_grew' : 'work_order',
+    headline: replanned ? 'a new plan after the tests kept failing' : grew ? `from ${old} to ${order.size}` : `size ${order.size}`, ask: 'Start Build?', detail: order.summary,
     report: report.file, affected: affects(c, order.repos), next: `Build starts: ${agents}.`, questions: shown(order.questions, report, asks), notes: report.notes,
     then: { stage: 'build', step: 'ready' }, change: { stage: 'understand', step: 'ready' },
   });
