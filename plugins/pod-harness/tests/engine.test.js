@@ -1401,7 +1401,7 @@ test('a later round that changes a file goes on, though the branch already had c
 test('a missing report dispatched again keeps the round\'s starting point', async () => {
   const t = await sentBackByTests();
   const before = t.state().build_before;
-  assert.deepEqual([before.round, Object.keys(before.repos)], [2, [APP]]);
+  assert.deepEqual(Object.keys(before), [APP]);
   t.later(60);
   const again = await t.next();
   assert.deepEqual([again.action.type, again.action.stage, t.state().round.build], ['dispatch', 'build', 2]);
@@ -1417,6 +1417,14 @@ test('a Build round started before 0.2.3 has no starting point: the branch is me
   writeState(t.dir, old);
   t.report('build', 'backend', rep({ evidence: SAFE }));
   assert.deepEqual([(await t.next()).action.type, t.state().stage], ['run', 'test']);
+
+  const first = await task(TRIVIAL);
+  await first.next();
+  const started = first.state();
+  delete started.build_before;
+  writeState(first.dir, started);
+  first.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.equal((await first.next()).action.question, 'Needs you: Build changed no file. What should happen?', 'a first round with nothing on the branch still asks');
 });
 
 test('under Bypass permissions a round that changes nothing after failing tests parks the task', async () => {

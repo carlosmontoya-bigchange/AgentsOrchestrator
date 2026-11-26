@@ -194,7 +194,7 @@ test('an edit in place counts each line once', () => {
 // ---- the fingerprint a Build round is compared by (0.2.3)
 
 test('the fingerprint is the same for an unchanged tree and differs after any change', () => {
-  const r = repo({ 'src/a.cs': 'one\ntwo\n', '.gitignore': 'ignored/\n' });
+  const r = repo({ 'src/a.cs': 'one\ntwo\n', '.gitignore': 'ignored/\n', 'logo.bin': Buffer.from([0, 1, 2]) });
   const { base } = prepareRepo(r, 'task/1');
   const seen = [fingerprintRepo(r, base)];
   const step = (files, what, same = false) => {
@@ -209,6 +209,8 @@ test('the fingerprint is the same for an unchanged tree and differs after any ch
   step({ 'src/a.cs': 'one\nTwo\n' }, 'the same line edited again, with the same counts');
   step({ 'src/new.cs': 'new\n' }, 'a new file');
   step({ 'src/new.cs': 'newer\n' }, 'the new file edited');
+  step({ 'logo.bin': Buffer.from([0, 1, 3]) }, 'a tracked binary file changed');
+  step({ 'logo.bin': Buffer.from([0, 1, 4]) }, 'and changed again');
   step({ 'ignored/x.txt': 'x\n' }, 'an ignored file changes nothing', true);
 });
 

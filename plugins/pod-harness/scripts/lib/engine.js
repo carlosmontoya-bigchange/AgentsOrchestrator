@@ -358,7 +358,7 @@ function buildReady(c) {
 
   state.round.build += 1;
   // Where the round starts from: a round that leaves every repo as it found it changed nothing.
-  state.build_before = { round: state.round.build, repos: Object.fromEntries(order.repos.map((id) => [id, fingerprintRepo(repoOf(c, id), state.repos[id].base)])) };
+  state.build_before = Object.fromEntries(order.repos.map((id) => [id, fingerprintRepo(repoOf(c, id), state.repos[id].base)]));
   const entries = buildEntries(c, order);
   const inputs = { notes: state.notes, reports: state.fix ? state.fix.reports : [] };
   for (const entry of entries) {
@@ -387,7 +387,7 @@ function buildWaiting(c) {
   writeFileAtomic(tasks.stageFile(dir, 'build', 'diff', state.round.build, 'json'), JSON.stringify({ repos: measures, trivial: judged }, null, 2) + '\n');
 
   // Measured for the round. A round started before 0.2.3 has no starting point: the branch is measured.
-  const before = state.build_before && state.build_before.round === state.round.build ? state.build_before.repos : null;
+  const before = state.build_before;
   const changed = before ? measures.some((m) => fingerprintRepo(m, m.base) !== before[m.id]) : measures.some((m) => m.files.length > 0);
   const after = stageAfter(c, 'build');
   const exceptions = got.items.flatMap((i) => i.report.markers.exceptions.map((x) => ({ key: i.key, text: x })));
@@ -408,7 +408,7 @@ function buildWaiting(c) {
       return needsYou(c, 'Build changed nothing and the tests still fail.', {
         headline: 'Build changed nothing and the tests still fail', questions: report.questions, notes: report.notes, report: report.file,
         then: review, next: `${title(review.stage)} starts, with the failing tests on record.`,
-        change: { stage: 'build', step: 'ready', fix: state.fix, reset: ['test'] },
+        change: { stage: 'build', step: 'ready', reset: ['test'] },
       });
     }
     return needsYou(c, 'Build changed no file.', {
