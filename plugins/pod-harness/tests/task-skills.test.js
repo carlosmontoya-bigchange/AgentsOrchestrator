@@ -135,9 +135,9 @@ test('the README documents the five commands and the Claude Code version', () =>
   assert.equal(/Phase 1 sets up only|Nothing runs tasks yet/.test(text), false, 'the README no longer says nothing runs');
 });
 
-test('plugin.json is at 0.2.2 and the marketplace describes running tasks', () => {
+test('plugin.json is at 0.2.3 and the marketplace describes running tasks', () => {
   const plugin = JSON.parse(read('.claude-plugin/plugin.json'));
-  assert.equal(plugin.version, '0.2.2');
+  assert.equal(plugin.version, '0.2.3');
   assert.match(plugin.description, /\/pod-harness:task/);
   const market = JSON.parse(fs.readFileSync(path.join(pluginRoot, '..', '..', '.claude-plugin', 'marketplace.json'), 'utf8'));
   assert.match(market.plugins.find((p) => p.name === 'pod-harness').description, /task/i);
@@ -171,8 +171,9 @@ test('setup says when a permission rule starts to hold, and shows only the globs
 
 test('the README says how a task asks when it cannot go on', () => {
   const text = read('README.md');
-  assert.match(text, /This is version 0\.2\.2/);
+  assert.match(text, /This is version 0\.2\.3/);
   assert.match(text, /\*\*What you decided\.\*\*[^\n]*none asks it again[^\n]*once for each work order/);
+  assert.match(text, /\*\*A loop that stops changing\.\*\*[^\n]*changes nothing[^\n]*always shown[^\n]*never decided by an agent/);
   assert.match(text, /Needs you/);
   assert.match(text, /Agents take the permission mode of your session\. The harness sets none of its own\./);
   assert.match(text, /questions and notes/i);

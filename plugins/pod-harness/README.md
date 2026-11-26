@@ -2,7 +2,7 @@
 
 A Claude Code plugin that gives a pod one way of working with Claude Code. A guided set-up collects the pod's repos, build and test commands, policies and stage checkpoints, and stores them on your machine. A pod lead can export that set-up as one file for the team. `/pod-harness:task` then runs a task through the pod's stages with that set-up.
 
-This is version 0.2.2: the set-up, and a task from intake to review. Design, planning and delivery come in later versions.
+This is version 0.2.3: the set-up, and a task from intake to review. Design, planning and delivery come in later versions.
 
 ## Install
 
@@ -58,6 +58,7 @@ Four more checkpoints always exist: a task that grew, a stage that used its budg
 - **Loops.** Failing tests go back to Build twice, then once to the Orchestrator for a new plan. A review that asks for changes goes back to Build twice. After that the task asks you ("Needs you") and names the evidence. Your answer, in your own words, runs the stage again with a fresh set of rounds.
 - **Questions and notes.** An agent's report keeps two lists apart: questions, which only you can decide, and notes for later. Only a question makes Auto ask. A checkpoint is a short summary followed by a one-line question; the full report stays in the task folder.
 - **What you decided.** An answer you give at a question, and a question you leave open with Continue, stay with the task: every later agent is told, and none asks it again. A Build agent's question is asked once for each work order. After a Continue, what later Build rounds ask goes to the stage report and the closing lines ("Left open in Build"). An answer in your own words, or a new work order, starts that count again.
+- **A loop that stops changing.** A Build round that changes nothing ends the loop: the task asks, and after failing tests it offers to go on to Review with the failure on record. A plan the Orchestrator makes after the tests kept failing is always shown, in Auto too. A question you left open is never decided by an agent: the Orchestrator may put it to you again when it cannot plan without the answer.
 - **Needs you.** When a task cannot go on by itself, it asks: the Orchestrator or a Build agent needs a decision, Build changed nothing, or a loop is used up. Where nothing may be asked, as under Bypass permissions, the task waits as `blocked`, and `/pod-harness:resume <id>` with what should happen starts it again. Nothing is guessed.
 - **Permission prompts.** Agents take the permission mode of your session. The harness sets none of its own.
 - **The commands of a repo** run as you would type them, through `cmd.exe` on Windows and `/bin/sh` elsewhere, with a limit of 30 minutes for each.
