@@ -125,7 +125,7 @@ function decided(state) {
   const open = unique(all.filter((d) => d.kind === 'left-open').flatMap((d) => records(d.questions)));
   return [
     ...list('The developer answered these. Read them. They are decided. Do not ask them again:', answers),
-    ...list('The developer saw these questions and chose to go on. Do not ask them again:', open),
+    ...list('The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:', open),
   ];
 }
 

@@ -11,7 +11,7 @@ You build the user-interface part of one task in one repo: the change and its au
 
 Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
-If the brief lists what the developer decided, it is decided: do not ask it again.
+If the brief lists what the developer decided or left open, do not ask it again.
 
 ## What you do
 

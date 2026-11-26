@@ -1141,8 +1141,8 @@ test('a task that is done says so when nothing is left open', async () => {
 const WORDING = 'Which wording do you want?';
 
 // A trivial task whose Build agent changed a file and asked: "Needs you" is open.
-async function buildAsks() {
-  const t = await task(TRIVIAL);
+async function buildAsks(opts) {
+  const t = await task(TRIVIAL, opts);
   await t.next();
   writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
   t.report('build', 'backend', rep({ evidence: SAFE, questions: WORDING }));
@@ -1150,8 +1150,8 @@ async function buildAsks() {
 }
 
 // From an open Build question to the next Build round: Continue, the tests, a review that asks for changes.
-async function backToBuild(t) {
-  t.answer('needs_you', 'continue');
+async function backToBuild(t, checkpoint = 'needs_you') {
+  t.answer(checkpoint, 'continue');
   assert.equal((await t.next()).action.type, 'run');
   await t.runTests();
   assert.equal((await t.next()).action.stage, 'review');
@@ -1188,15 +1188,18 @@ test('a Build question left open with Continue is not asked again in a later rou
   ]);
   await backToBuild(t);
   assert.deepEqual(t.state().decisions[0], { kind: 'left-open', stage: 'build', questions: [WORDING], question: asked.action.file });
-  const leftOpen = `The developer saw these questions and chose to go on. Do not ask them again:\n- ${WORDING}`;
+  const leftOpen = `The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:\n- ${WORDING}\n\n`;
   assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(leftOpen));
   t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which wording should the greeting have?' }));
   const again = await t.next();
   assert.deepEqual([again.action.type, again.stage], ['run', 'test'], 'asked once for this work order');
   assert.ok(read(again.show[0].report).includes('- Which wording should the greeting have?'), 'the stage report keeps it');
+  assert.equal(again.show[0].lines.at(-1), 'Not asked again, left open: Which wording should the greeting have?');
+  assert.deepEqual(t.state().decisions.at(-1), { kind: 'not-asked', stage: 'build', questions: ['Which wording should the greeting have?'], question: again.show[0].report });
   await t.runTests();
   assert.equal((await t.next()).action.stage, 'review');
-  assert.ok(read(stageFile(t.dir, 'review', 'reviewer', 2, 'brief.md')).includes('- Which wording should the greeting have?'), 'the Reviewer is told too');
+  const review = read(stageFile(t.dir, 'review', 'reviewer', 2, 'brief.md'));
+  assert.ok(review.includes(leftOpen) && !review.includes('Which wording should the greeting have?'), 'the developer did not see the later question: no brief says so');
   t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve' }));
   t.answer((await t.next()).action.checkpoint, 'continue');
   const { lines } = (await t.next()).action;
@@ -1249,15 +1252,76 @@ test('when the work order holds questions, the checkpoint shows those and not th
   assert.equal((await report.next()).action.question, 'Work order: size S, 1 question. Start Build?');
 });
 
-test('a task started before 0.2.2 has no list of decisions: it is read as empty', async () => {
-  const t = await stuckInBuild();
-  await t.next();
+// A state file as 0.2.1 wrote it.
+function asBefore(t) {
   const old = t.state();
   delete old.decisions;
+  delete old.build_asked;
   writeState(t.dir, old);
-  const note = t.file('change-1.md');
+}
+
+test('a task started before 0.2.2 has no list of decisions: it is read as empty', async () => {
+  const answered = await stuckInBuild();
+  await answered.next();
+  asBefore(answered);
+  const note = answered.file('change-1.md');
   fs.writeFileSync(note, 'Say "hello, pod".\n');
-  t.answer('needs_you', 'change', note);
-  assert.deepEqual(t.state().decisions.map((d) => [d.kind, d.note]), [['answer', note]]);
-  assert.equal((await t.next()).action.stage, 'build');
+  answered.answer('needs_you', 'change', note);
+  assert.deepEqual(answered.state().decisions.map((d) => [d.kind, d.note]), [['answer', note]]);
+  assert.equal((await answered.next()).action.stage, 'build');
+
+  const { t: left } = await buildAsks();
+  asBefore(left);
+  left.answer('needs_you', 'continue');
+  assert.deepEqual(left.state().decisions.map((d) => d.kind), ['left-open']);
+
+  const plain = await task(TRIVIAL, { mode: 'bypassPermissions' });
+  await plain.next();
+  asBefore(plain);
+  await throughReview(plain);
+  const end = await plain.next();
+  assert.deepEqual([end.action.status, end.action.lines.some((l) => l.startsWith('Left open'))], ['done', false]);
+});
+
+test('a policy exception left with Continue is not listed as left open; the question beside it is, and is not asked again', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  writeFiles(t.h.app, { 'src/greeting.cs': 'hello, pod\n' });
+  const name = 'Which name should the new column have?';
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: `- Policy exception: pod-migration - drop the old column\n- ${name}` }));
+  const asked = await t.next();
+  assert.equal(asked.action.checkpoint, 'policy_exception');
+  await backToBuild(t, 'policy_exception');
+  assert.deepEqual(t.state().decisions, [{ kind: 'left-open', stage: 'build', questions: [name], question: asked.action.file }]);
+  assert.equal(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes('drop the old column'), false, 'going on without it is not a yes');
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: name }));
+  assert.equal((await t.next()).action.type, 'run', 'the question was shown beside the exception: it is not asked a second time');
+});
+
+test('Continue at a parked Build question records it and goes on to Test', async () => {
+  const { t, asked } = await buildAsks({ mode: 'bypassPermissions' });
+  assert.equal(asked.action.status, 'blocked');
+  t.answer('needs_you', 'continue');
+  assert.deepEqual(t.state().decisions.map((d) => [d.kind, d.questions]), [['left-open', [WORDING]]]);
+  assert.equal((await t.next()).action.type, 'run');
+});
+
+test('a question left open at the review is not printed as left open in Build', async () => {
+  const t = await task(TRIVIAL, { mode: 'auto' });
+  await t.next();
+  await throughReview(t);
+  t.report('review', 'reviewer', rep({ evidence: 'Verdict: approve', questions: 'Should the greeting be translated?' }));
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  const { lines } = (await t.next()).action;
+  assert.deepEqual(lines.filter((l) => l.startsWith('Left open')), ['Left open at the review: Should the greeting be translated?']);
+});
+
+test('an M work order with a question of its own still says that Design and Plan are skipped', async () => {
+  const t = await task(FULL);
+  await t.next();
+  t.order(order({ size: 'M', questions: ['Should the index be unique?'] }));
+  t.report('understand', 'orchestrator', rep({ questions: 'Is a unique index wanted here?' }));
+  const r = await t.next();
+  assert.equal(r.action.question, 'Work order: size M, 2 questions. Start Build?');
+  assert.ok(r.action.summary.includes('- Should the index be unique?\n- The Design and Plan stages are not in this version'));
 });

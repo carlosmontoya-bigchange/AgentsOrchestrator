@@ -97,7 +97,7 @@ function endLines(c) {
       `To go on, say what should happen: /pod-harness:resume ${state.id}.`, NOT_DONE];
   }
   const ran = ['understand', 'build', 'test', 'review'].filter((s) => state.round[s] > 0).map((s) => `${title(s)} ${state.round[s]} ${state.round[s] === 1 ? 'round' : 'rounds'}`);
-  const open = unique(decisions(state).filter((d) => d.kind === 'left-open' && d.stage === 'build').flatMap((d) => d.questions));
+  const open = unique(decisions(state).filter((d) => d.kind !== 'answer' && d.stage === 'build').flatMap((d) => d.questions));
   const lines = [`Task ${state.id} is done. Size ${state.size}, ${state.path} path.`, `Stages: ${ran.join(', ')}.`, ...repos, ...reports, ...open.map((q) => `Left open in Build: ${q}`)];
   if (state.round.review > 0) {
     const review = readReport(tasks.stageFile(c.dir, 'review', 'reviewer', state.round.review, 'md'));
@@ -187,7 +187,8 @@ function proceed(c, target) {
 // Raises a checkpoint. Whether it is asked follows the permission mode. One that is not asked is logged, and
 // the task goes on as "Continue" would. "Needs you" has no such default: not asked, the task is parked.
 // then: where "Continue" leads, absent when it is not offered. change: where "Continue with a change" leads.
-function raise(c, { checkpoint, headline, ask, detail, report, affected, next, questions, notes = [], then, change, again }) {
+// open: the questions a Continue leaves open, when that is not all of what is shown.
+function raise(c, { checkpoint, headline, ask, detail, report, affected, next, questions, open, notes = [], then, change, again }) {
   const { state } = c;
   const value = recordedMode(c);
   const decision = decide({ checkpoint, approvals: c.config.approvals, mode: value, quiet: state.quiet, size: state.size, questions: questions.length });
@@ -206,7 +207,7 @@ function raise(c, { checkpoint, headline, ask, detail, report, affected, next, q
   });
   const file = tasks.stageFile(c.dir, state.stage, 'checkpoint', state.round[state.stage], 'md');
   writeFileAtomic(file, asked.summary + '\n');
-  const asking = { checkpoint, reason: decision.reason, then, change, choices, ask: asked, file, questions };
+  const asking = { checkpoint, reason: decision.reason, then, change, choices, ask: asked, file, questions, ...(open ? { open } : {}) };
   if (!decision.ask) {
     tasks.logApproval(c.dir, entry);
     return park(c, detail, asking);
@@ -412,7 +413,11 @@ function buildWaiting(c) {
     });
   }
   if (exceptions.length) {
+    // A question shown beside the exception counts as asked. Going on without the exception is not a yes to
+    // it, so only the questions are kept as left open.
+    if (report.questions.length) state.build_asked = state.round.understand;
     return raise(c, {
+      open: report.questions,
       checkpoint: 'policy_exception', headline: 'a policy needs your yes', ask: 'Go on without it?',
       detail: 'A Build agent left something undone because a pod policy needs your yes for it.', report: report.file,
       affected: affects(c, order.repos), next: `${title(after.stage)} starts without it. To allow it, choose "Continue with a change" and say so.`,
@@ -423,8 +428,8 @@ function buildWaiting(c) {
   // A Build agent that asks is never passed over because files changed: another agent's work, or an earlier
   // round's, would otherwise send the task on to Test with the question lost.
   if (report.questions.length) {
-    // Asked once for each work order. After a Continue, what later rounds ask is kept as left open and not
-    // put to the developer again. An answer in words, or a new work order, starts the count again.
+    // Asked once for each work order. After a Continue, what later rounds ask is shown and kept, and not put
+    // to the developer again. An answer in words, or a new work order, starts the count again.
     if (state.build_asked !== state.round.understand) {
       state.build_asked = state.round.understand;
       return needsYou(c, 'A Build agent needs an answer.', {
@@ -432,7 +437,9 @@ function buildWaiting(c) {
         then: after, next: `${title(after.stage)} starts, with the question left open.`, change: { stage: 'build', step: 'ready', reset: [] },
       });
     }
-    state.decisions = [...decisions(state), { kind: 'left-open', stage: 'build', question: report.file, questions: report.questions }];
+    // The developer has not seen these, so no brief calls them seen: the Reviewer reads them in Build's report.
+    state.decisions = [...decisions(state), { kind: 'not-asked', stage: 'build', question: report.file, questions: report.questions }];
+    facts.push(...report.questions.map((q) => `Not asked again, left open: ${q}`)); // the lines the session shows
   }
   goTo(c, after.stage, after.step);
   return null;
@@ -648,8 +655,9 @@ function answer(ctx, checkpoint, choice, notePath) {
       state.notes.push(notePath);
       state.decisions = [...decisions(state), { kind: 'answer', ...asked, note: notePath }];
       state.build_asked = null;
-    } else if ((state.asking.questions || []).length) {
-      state.decisions = [...decisions(state), { kind: 'left-open', ...asked, questions: state.asking.questions }];
+    } else {
+      const open = state.asking.open || state.asking.questions || [];
+      if (open.length) state.decisions = [...decisions(state), { kind: 'left-open', ...asked, questions: open }];
     }
     proceed(c, choice === 'change' ? change : then);
   }
