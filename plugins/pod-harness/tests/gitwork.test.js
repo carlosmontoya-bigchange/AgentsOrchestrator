@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pluginRoot, tempDir, git, clonedRepo, writeFiles, commitAll } = require('./helpers');
-const { branchName, prepareRepo, classify, measureRepo, judgeTrivial } = require('../scripts/lib/gitwork.js');
+const { branchName, prepareRepo, classify, measureRepo, judgeTrivial, fingerprintRepo } = require('../scripts/lib/gitwork.js');
 
 const out = (dir, ...args) => String(git(dir, ...args)).trim();
 const lines = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1}\n`).join('');
@@ -189,4 +189,38 @@ test('an edit in place counts each line once', () => {
   writeFiles(r.path, { 'src/a.cs': lines(14) + Array.from({ length: 26 }, (_, i) => `changed ${i}\n`).join('') });
   const m = measureRepo(r, base, []);
   assert.deepEqual([m.files[0].added, m.files[0].removed, m.product_lines], [26, 26, 26]);
+});
+
+// ---- the fingerprint a Build round is compared by (0.2.3)
+
+test('the fingerprint is the same for an unchanged tree and differs after any change', () => {
+  const r = repo({ 'src/a.cs': 'one\ntwo\n', '.gitignore': 'ignored/\n' });
+  const { base } = prepareRepo(r, 'task/1');
+  const seen = [fingerprintRepo(r, base)];
+  const step = (files, what, same = false) => {
+    writeFiles(r.path, files);
+    const now = fingerprintRepo(r, base);
+    assert.equal(seen.includes(now), same, what);
+    seen.push(now);
+  };
+  assert.match(seen[0], /^[0-9a-f]{64}$/);
+  assert.equal(fingerprintRepo(r, base), seen[0], 'twice in a row');
+  step({ 'src/a.cs': 'one\nTWO\n' }, 'a tracked file edited');
+  step({ 'src/a.cs': 'one\nTwo\n' }, 'the same line edited again, with the same counts');
+  step({ 'src/new.cs': 'new\n' }, 'a new file');
+  step({ 'src/new.cs': 'newer\n' }, 'the new file edited');
+  step({ 'ignored/x.txt': 'x\n' }, 'an ignored file changes nothing', true);
+});
+
+test('the fingerprint does not throw on a nested repo among the new files', () => {
+  const r = repo();
+  const { base } = prepareRepo(r, 'task/1');
+  const before = fingerprintRepo(r, base);
+  const nested = path.join(r.path, 'vendor', 'lib');
+  fs.mkdirSync(nested, { recursive: true });
+  git(nested, 'init', '-q');
+  writeFiles(nested, { 'x.txt': 'x\n' });
+  const after = fingerprintRepo(r, base);
+  assert.match(after, /^[0-9a-f]{64}$/);
+  assert.notEqual(after, before);
 });
