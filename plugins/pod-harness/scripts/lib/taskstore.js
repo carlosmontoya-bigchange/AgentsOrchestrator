@@ -46,7 +46,7 @@ function createTask(dir, fields) {
     format: 1, id: null, pod: null, created: null, status: 'running', item: null, predicted: 'full', forced: false,
     path: 'full', size: null, orchestrator: 'orchestrator', stage: 'understand', step: 'ready',
     round: { understand: 0, build: 0, test: 0, review: 0 }, returns: { test: 0, review: 0, reroute: 0 }, redo: 0,
-    repos: {}, asking: null, asked: [], notes: [], fix: null, grew: [], quiet: false, blocked: null,
+    repos: {}, asking: null, asked: [], notes: [], decisions: [], build_asked: null, fix: null, grew: [], quiet: false, blocked: null,
     ...fields,
   };
   writeState(dir, state);
@@ -106,7 +106,8 @@ const sessionFile = (env, id) => (typeof id === 'string' && SESSION_ID.test(id) 
 
 function registerSession(env, sessionId, dir) {
   const file = sessionFile(env, sessionId);
-  if (file) writeFileAtomic(file, JSON.stringify({ dir }) + '\n');
+  // Written only when it changes: "next" writes nothing in Plan mode.
+  if (file && sessionTask(env, sessionId) !== dir) writeFileAtomic(file, JSON.stringify({ dir }) + '\n');
 }
 
 function sessionTask(env, sessionId) {

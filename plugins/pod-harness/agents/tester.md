@@ -11,6 +11,8 @@ You only test. You find what failed and where, and you run the checks a script c
 
 Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
+If the brief lists what the developer decided, it is decided: do not ask it again.
+
 ## What you do
 
 1. Read the result of the test run and the output of what failed. The brief names both.

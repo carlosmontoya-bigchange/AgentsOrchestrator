@@ -79,6 +79,12 @@ test('a Build agent asks instead of guessing, and the Orchestrator may leave the
   assert.ok(agent('orchestrator').body.includes('If nothing can be built until a person decides something, write the work order with the questions and an empty `agents` list. Do not guess.'));
 });
 
+test('every agent that gets the developer\'s decisions is told not to ask them again', () => {
+  for (const name of names.filter((n) => n !== 'explorer')) {
+    assert.ok(agent(name).body.includes('If the brief lists what the developer decided, it is decided: do not ask it again.'), name);
+  }
+});
+
 test('each agent names its marker line', () => {
   for (const name of BUILD) assert.ok(agent(name).body.includes('`Sensitive change: yes` or `Sensitive change: no`'), name);
   assert.ok(agent('tester').body.includes('`Result: pass` or `Result: fail`'));

@@ -36,6 +36,8 @@ const repoOf = (c, id) => (c.config.repos || []).find((r) => r.id === id) || { i
 const day = (c) => c.now().toISOString().slice(0, 10);
 const goTo = (c, stage, step) => { c.state.stage = stage; c.state.step = step; };
 const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// What the developer decided at a question. Never emptied. A task started before 0.2.2 has no list.
+const decisions = (state) => state.decisions || [];
 
 const stillWorking = (c) => Boolean(c.state.dispatched) && c.now() - new Date(c.state.dispatched) < GRACE_MS;
 const working = (c) => ({ action: { type: 'wait', message: STILL_WORKING }, say: say(c.state.stage, 'the agents are still working.') });
@@ -95,7 +97,8 @@ function endLines(c) {
       `To go on, say what should happen: /pod-harness:resume ${state.id}.`, NOT_DONE];
   }
   const ran = ['understand', 'build', 'test', 'review'].filter((s) => state.round[s] > 0).map((s) => `${title(s)} ${state.round[s]} ${state.round[s] === 1 ? 'round' : 'rounds'}`);
-  const lines = [`Task ${state.id} is done. Size ${state.size}, ${state.path} path.`, `Stages: ${ran.join(', ')}.`, ...repos, ...reports];
+  const open = unique(decisions(state).filter((d) => d.kind === 'left-open' && d.stage === 'build').flatMap((d) => d.questions));
+  const lines = [`Task ${state.id} is done. Size ${state.size}, ${state.path} path.`, `Stages: ${ran.join(', ')}.`, ...repos, ...reports, ...open.map((q) => `Left open in Build: ${q}`)];
   if (state.round.review > 0) {
     const review = readReport(tasks.stageFile(c.dir, 'review', 'reviewer', state.round.review, 'md'));
     const left = review ? [...review.questions.map((q) => `Left open at the review: ${q}`), ...review.notes.map((n) => `Note from the review: ${n}`)] : [];
@@ -224,6 +227,10 @@ function needsYou(c, reason, { headline, questions = [], notes = [], report, the
   });
 }
 
+// The Orchestrator may ask one thing in its work order and again, in other words, in its report. When the work
+// order holds questions, its list is the one the checkpoint shows.
+const shown = (ordered, report, asks = ordered) => (ordered.length ? unique(asks) : report.questions);
+
 const briefContext = (c, extra) => ({ config: c.config, state: c.state, dir: c.dir, platform: c.platform, ...extra });
 
 function understandReady(c) {
@@ -299,7 +306,7 @@ function understandWaiting(c) {
     const report = stageReport(c, 'understand', entries, [`Size ${order.size}: ${order.summary}`, 'No Build agent: the Orchestrator needs an answer first.', ...found],
       order.questions, [], 'Nothing until you answer.');
     return needsYou(c, 'The Orchestrator cannot plan this until you answer.', {
-      headline: 'the Orchestrator needs an answer', questions: report.questions, notes: report.notes, report: report.file,
+      headline: 'the Orchestrator needs an answer', questions: shown(order.questions, report), notes: report.notes, report: report.file,
       change: { stage: 'understand', step: 'ready', reset: [] },
     });
   }
@@ -315,7 +322,7 @@ function understandWaiting(c) {
   const grew = old !== null && RANK.indexOf(order.size) > RANK.indexOf(old);
   return raise(c, {
     checkpoint: grew ? 'task_grew' : 'work_order', headline: grew ? `from ${old} to ${order.size}` : `size ${order.size}`, ask: 'Start Build?', detail: order.summary,
-    report: report.file, affected: affects(c, order.repos), next: `Build starts: ${agents}.`, questions: report.questions, notes: report.notes,
+    report: report.file, affected: affects(c, order.repos), next: `Build starts: ${agents}.`, questions: shown(order.questions, report, asks), notes: report.notes,
     then: { stage: 'build', step: 'ready' }, change: { stage: 'understand', step: 'ready' },
   });
 }
@@ -416,10 +423,16 @@ function buildWaiting(c) {
   // A Build agent that asks is never passed over because files changed: another agent's work, or an earlier
   // round's, would otherwise send the task on to Test with the question lost.
   if (report.questions.length) {
-    return needsYou(c, 'A Build agent needs an answer.', {
-      headline: 'a Build agent needs an answer', questions: report.questions, notes: report.notes, report: report.file,
-      then: after, next: `${title(after.stage)} starts, with the question left open.`, change: { stage: 'build', step: 'ready', reset: [] },
-    });
+    // Asked once for each work order. After a Continue, what later rounds ask is kept as left open and not
+    // put to the developer again. An answer in words, or a new work order, starts the count again.
+    if (state.build_asked !== state.round.understand) {
+      state.build_asked = state.round.understand;
+      return needsYou(c, 'A Build agent needs an answer.', {
+        headline: 'a Build agent needs an answer', questions: report.questions, notes: report.notes, report: report.file,
+        then: after, next: `${title(after.stage)} starts, with the question left open.`, change: { stage: 'build', step: 'ready', reset: [] },
+      });
+    }
+    state.decisions = [...decisions(state), { kind: 'left-open', stage: 'build', question: report.file, questions: report.questions }];
   }
   goTo(c, after.stage, after.step);
   return null;
@@ -629,7 +642,15 @@ function answer(ctx, checkpoint, choice, notePath) {
   if (choice === 'stop') state.status = 'stopped'; // the question stays open: the next call asks it again
   else {
     state.status = 'running';
-    if (choice === 'change') state.notes.push(notePath);
+    // What the developer decides here holds for the rest of the task: every later brief names it.
+    const asked = { stage: state.stage, question: state.asking.file };
+    if (choice === 'change') {
+      state.notes.push(notePath);
+      state.decisions = [...decisions(state), { kind: 'answer', ...asked, note: notePath }];
+      state.build_asked = null;
+    } else if ((state.asking.questions || []).length) {
+      state.decisions = [...decisions(state), { kind: 'left-open', ...asked, questions: state.asking.questions }];
+    }
     proceed(c, choice === 'change' ? change : then);
   }
   tasks.writeState(ctx.dir, state);

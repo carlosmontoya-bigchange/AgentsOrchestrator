@@ -95,6 +95,11 @@ test('needs_you has its own name, and its detail is shown under the title', () =
   assert.equal(r.options[1].description, 'Build runs again with your answer.');
 });
 
+test('a detail that only repeats the title is not shown', () => {
+  const r = q({ checkpoint: 'needs_you', headline: 'a Build agent needs an answer', ask: 'What should happen?', detail: 'A Build agent needs an answer.' });
+  assert.deepEqual(r.summary.split('\n').slice(0, 2), ['### Needs you: a Build agent needs an answer', 'Task 362525, app, branch task/362525']);
+});
+
 test('the choices can leave Continue out', () => {
   assert.deepEqual(q({ choices: ['change', 'stop'] }).options.map((o) => o.label), ['Continue with a change', 'Stop here']);
   assert.deepEqual(q().options.map((o) => o.label), ['Continue', 'Continue with a change', 'Stop here']);

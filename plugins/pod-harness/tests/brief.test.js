@@ -288,3 +288,26 @@ test('a Build brief says that a note in which the developer allows it is the yes
   const part = section(renderBrief('build', f.ctx({ entry: f.entries[1] })), 'Your part');
   assert.ok(part.includes('A note under Task in which the developer allows it is that yes.'));
 });
+
+test('every brief but the Explorer\'s names what the developer decided, below "## Task"', () => {
+  const f = fixture();
+  const note = path.join(f.dir, 'change-1.md');
+  const asked = stageFile(f.dir, 'understand', 'checkpoint', 1, 'md');
+  const decisions = [
+    { kind: 'answer', stage: 'understand', note, question: asked },
+    { kind: 'left-open', stage: 'build', questions: ['Which wording do you want?'], question: stageFile(f.dir, 'build', 'checkpoint', 1, 'md') },
+    { kind: 'left-open', stage: 'build', questions: ['which wording do you want?', 'Should the old text stay?'], question: stageFile(f.dir, 'build', 'stage-report', 2, 'md') },
+  ];
+  const { decisions: none, ...old } = f.state;
+  for (const [kind, extra] of [['orchestrator', {}], ['build', { entry: f.entries[0] }], ['tester', {}], ['reviewer', {}]]) {
+    const text = renderBrief(kind, f.ctx({ state: { ...f.state, decisions }, ...extra }));
+    const task = section(text, 'Task');
+    assert.ok(task.includes(`The developer answered these. Read them. They are decided. Do not ask them again:\n- \`${note}\`, the answer to \`${asked}\`\n`), kind);
+    assert.ok(task.includes('The developer saw these questions and chose to go on. Do not ask them again:\n- Which wording do you want?\n- Should the old text stay?\n'), kind);
+    assert.equal(above(text).includes('Do not ask them again'), false, kind);
+    assert.match(task.trimEnd(), /\n\nWrite your report to `[^`]+\.md`\.$/, `${kind}: the report path stays last, on its own line`);
+    assert.equal(renderBrief(kind, f.ctx(extra)).includes('Do not ask them again'), false, `${kind}: nothing decided, no block`);
+    assert.equal(renderBrief(kind, f.ctx({ state: old, ...extra })).includes('Do not ask them again'), false, `${kind}: a task without the list`);
+  }
+  assert.equal(renderBrief('explorer', f.ctx({ state: { ...f.state, decisions } })).includes('Do not ask them again'), false);
+});
