@@ -1190,7 +1190,7 @@ test('a Build question left open with Continue is not asked again in a later rou
   ]);
   await backToBuild(t);
   assert.deepEqual(t.state().decisions[0], { kind: 'left-open', stage: 'build', questions: [WORDING], question: asked.action.file });
-  const leftOpen = `The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:\n- ${WORDING}\n\n`;
+  const leftOpen = `The developer saw these questions and chose to go on without answering. Do not ask them again and do not decide them yourself. Do what your job allows without them, and say under Notes what you left:\n- ${WORDING}\n\n`;
   assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(leftOpen));
   build(t, undefined, SAFE, { questions: 'Which wording should the greeting have?' });
   const again = await t.next();
