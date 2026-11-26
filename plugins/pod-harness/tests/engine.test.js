@@ -58,10 +58,12 @@ async function task(args, opts = {}) {
   };
 }
 
-// The Build agent's part: change files in App and leave the report.
-function build(t, files = { 'src/greeting.cs': 'hello, pod\n' }, evidence = SAFE) {
-  writeFiles(t.h.app, files);
-  return t.report('build', 'backend', rep({ evidence }));
+// The Build agent's part: change files in App and leave the report. A later round writes other text, so every
+// round that calls this is seen to have changed something.
+function build(t, files, evidence = SAFE, extra = {}) {
+  const round = t.state().round.build;
+  writeFiles(t.h.app, files || { 'src/greeting.cs': round > 1 ? `hello, pod, round ${round}\n` : 'hello, pod\n' });
+  return t.report('build', 'backend', rep({ evidence, ...extra }));
 }
 
 // The full path through Understand: the Orchestrator's work order and report, then Continue at the checkpoint.
@@ -491,7 +493,7 @@ test('a third test failure re-routes to the full Orchestrator; after two more re
   for (const round of [2, 3]) {
     r = await failTests(t);
     assert.deepEqual([r.action.stage, t.state().round.build], ['build', round]);
-    t.report('build', 'backend', rep({ evidence: SAFE }));
+    build(t);
   }
   r = await failTests(t);
   assert.deepEqual([r.stage, r.action.waves[0][0].agent, r.action.waves[0][0].model], ['understand', 'pod-harness:orchestrator', 'opus']);
@@ -505,10 +507,10 @@ test('a third test failure re-routes to the full Orchestrator; after two more re
   t.answer('work_order', 'continue');
   assert.equal((await t.next()).action.stage, 'build');
   for (let i = 0; i < 2; i++) {
-    t.report('build', 'backend', rep({ evidence: SAFE }));
+    build(t);
     assert.equal((await failTests(t)).action.stage, 'build');
   }
-  t.report('build', 'backend', rep({ evidence: SAFE }));
+  build(t);
   const end = await failTests(t);
   assert.deepEqual([end.action.type, end.action.checkpoint, t.state().status], ['ask', 'needs_you', 'running']);
   assert.equal(end.action.question, 'Needs you: the tests still fail. What should happen?');
@@ -528,14 +530,14 @@ test('after the whole test loop, an answer with a change starts the counts over'
   await t.next();
   build(t);
   let r = await failTests(t);
-  for (let i = 0; i < 2; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  for (let i = 0; i < 2; i++) { build(t); r = await failTests(t); }
   assert.equal(r.stage, 'understand');
   t.order();
   t.report('understand', 'orchestrator');
   r = await t.next();
   t.answer(r.action.checkpoint, 'continue');
   await t.next();
-  for (let i = 0; i < 3; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  for (let i = 0; i < 3; i++) { build(t); r = await failTests(t); }
   assert.equal(r.action.checkpoint, 'needs_you');
   const note = t.file('change-1.md');
   fs.writeFileSync(note, 'The test command is wrong: fix the script.');
@@ -974,12 +976,12 @@ test('under Bypass permissions tests that still fail park the task: Review is no
   await t.next();
   build(t);
   let r = await failTests(t);
-  for (let i = 0; i < 2; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  for (let i = 0; i < 2; i++) { build(t); r = await failTests(t); }
   assert.equal(r.stage, 'understand');
   t.order();
   t.report('understand', 'orchestrator');
   assert.equal((await t.next()).action.stage, 'build', 'the work order is not asked under Bypass permissions');
-  for (let i = 0; i < 3; i++) { t.report('build', 'backend', rep({ evidence: SAFE })); r = await failTests(t); }
+  for (let i = 0; i < 3; i++) { build(t); r = await failTests(t); }
   assert.deepEqual([r.action.type, r.action.status, t.state().asking.checkpoint, t.state().round.review], ['end', 'blocked', 'needs_you', 0]);
   assert.deepEqual(t.state().asking.choices, ['continue', 'change', 'stop']);
 });
@@ -1190,7 +1192,7 @@ test('a Build question left open with Continue is not asked again in a later rou
   assert.deepEqual(t.state().decisions[0], { kind: 'left-open', stage: 'build', questions: [WORDING], question: asked.action.file });
   const leftOpen = `The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:\n- ${WORDING}\n\n`;
   assert.ok(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes(leftOpen));
-  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Which wording should the greeting have?' }));
+  build(t, undefined, SAFE, { questions: 'Which wording should the greeting have?' });
   const again = await t.next();
   assert.deepEqual([again.action.type, again.stage], ['run', 'test'], 'asked once for this work order');
   assert.ok(read(again.show[0].report).includes('- Which wording should the greeting have?'), 'the stage report keeps it');
@@ -1214,7 +1216,7 @@ test('a new work order starts the count again: its first Build question is asked
   t.answer('task_grew', 'continue');
   await understood(t);
   assert.equal((await t.next()).action.stage, 'build');
-  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Should the old greeting stay?' }));
+  build(t, undefined, SAFE, { questions: 'Should the old greeting stay?' });
   const r = await t.next();
   assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: a Build agent needs an answer, 1 question. What should happen?']);
 });
@@ -1225,8 +1227,8 @@ test('an answer in words starts the count again: what Build asks after it is ask
   fs.writeFileSync(note, 'Say "hello, pod".\n');
   t.answer('needs_you', 'change', note);
   assert.equal((await t.next()).action.stage, 'build');
-  t.report('build', 'backend', rep({ evidence: SAFE, questions: 'Should the old greeting stay?' }));
-  assert.equal((await t.next()).action.checkpoint, 'needs_you');
+  build(t, undefined, SAFE, { questions: 'Should the old greeting stay?' });
+  assert.equal((await t.next()).action.question, 'Needs you: a Build agent needs an answer, 1 question. What should happen?');
 });
 
 test('when the work order holds questions, the checkpoint shows those and not the report\'s wording as well', async () => {
@@ -1294,7 +1296,7 @@ test('a policy exception left with Continue is not listed as left open; the ques
   await backToBuild(t, 'policy_exception');
   assert.deepEqual(t.state().decisions, [{ kind: 'left-open', stage: 'build', questions: [name], question: asked.action.file }]);
   assert.equal(read(stageFile(t.dir, 'build', 'backend', 2, 'brief.md')).includes('drop the old column'), false, 'going on without it is not a yes');
-  t.report('build', 'backend', rep({ evidence: SAFE, questions: name }));
+  build(t, undefined, SAFE, { questions: name });
   assert.equal((await t.next()).action.type, 'run', 'the question was shown beside the exception: it is not asked a second time');
 });
 
@@ -1324,4 +1326,103 @@ test('an M work order with a question of its own still says that Design and Plan
   const r = await t.next();
   assert.equal(r.action.question, 'Work order: size M, 2 questions. Start Build?');
   assert.ok(r.action.summary.includes('- Should the index be unique?\n- The Design and Plan stages are not in this version'));
+});
+
+// ---- a round that changes nothing (0.2.3)
+
+const SCRIPT = 'Should the always-failing test script be fixed?';
+
+// A trivial task whose tests fail: Build round 1 changed a file, the Tester reported, Build round 2 is dispatched.
+async function sentBackByTests(opts = {}) {
+  const t = await task(TRIVIAL, { setup: failingTests, ...opts });
+  await t.next();
+  build(t);
+  const back = await failTests(t);
+  assert.deepEqual([back.action.stage, t.state().round.build], ['build', 2]);
+  return t;
+}
+
+test('a round sent back by failing tests that changes nothing stops the loop and asks, with Review on offer', async () => {
+  const t = await sentBackByTests();
+  t.report('build', 'backend', rep({ evidence: SAFE, questions: SCRIPT }));
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.checkpoint], ['ask', 'needs_you']);
+  assert.equal(r.action.question, 'Needs you: Build changed nothing and the tests still fail, 1 question. What should happen?');
+  assert.deepEqual(r.action.summary.split('\n').slice(0, 5), [
+    '### Needs you: Build changed nothing and the tests still fail', `Task ${t.id}, App, branch task/${t.id}`, '',
+    '**You decide**', `- ${SCRIPT}`,
+  ]);
+  assert.deepEqual(r.action.options.map((o) => o.label), ['Continue', 'Continue with a change', 'Stop here']);
+  assert.equal(r.action.options[0].description, 'Review starts, with the failing tests on record.');
+  assert.deepEqual([t.state().round.build, t.state().round.test, t.state().returns.test], [2, 1, 1], 'no third round was started');
+});
+
+test('Continue there starts the Review with the failing test result', async () => {
+  const t = await sentBackByTests();
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.equal((await t.next()).action.checkpoint, 'needs_you');
+  t.answer('needs_you', 'continue');
+  const review = await t.next();
+  assert.deepEqual([review.stage, review.action.waves[0][0].key, t.state().round.build], ['review', 'reviewer', 2]);
+  assert.ok(read(stageFile(t.dir, 'review', 'reviewer', 1, 'brief.md')).includes(stageFile(t.dir, 'test', 'result', 1, 'json')));
+});
+
+test('Continue with a change there runs Build again with the answer and the Tester\'s report, and gives the loop its rounds back', async () => {
+  const t = await sentBackByTests();
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.equal((await t.next()).action.checkpoint, 'needs_you');
+  const note = t.file('change-1.md');
+  fs.writeFileSync(note, 'Replace the test script.\n');
+  t.answer('needs_you', 'change', note);
+  const back = await t.next();
+  assert.deepEqual([back.action.stage, t.state().round.build, t.state().returns.test], ['build', 3, 0]);
+  const brief = read(stageFile(t.dir, 'build', 'backend', 3, 'brief.md'));
+  assert.ok(brief.includes(note) && brief.includes(stageFile(t.dir, 'test', 'tester', 1, 'md')));
+});
+
+test('a round sent back by the review that changes nothing asks with two choices', async () => {
+  const t = await task(TRIVIAL);
+  await t.next();
+  await throughReview(t, 'Verdict: changes');
+  t.answer((await t.next()).action.checkpoint, 'continue');
+  assert.deepEqual([(await t.next()).action.stage, t.state().round.build], ['build', 2]);
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  const r = await t.next();
+  assert.deepEqual([r.action.checkpoint, r.action.question], ['needs_you', 'Needs you: Build changed no file. What should happen?']);
+  assert.deepEqual(r.action.options.map((o) => o.label), ['Continue with a change', 'Stop here']);
+});
+
+test('a later round that changes a file goes on, though the branch already had changes', async () => {
+  const t = await sentBackByTests();
+  build(t);
+  assert.deepEqual([(await t.next()).action.type, t.state().stage], ['run', 'test']);
+});
+
+test('a missing report dispatched again keeps the round\'s starting point', async () => {
+  const t = await sentBackByTests();
+  const before = t.state().build_before;
+  assert.deepEqual([before.round, Object.keys(before.repos)], [2, [APP]]);
+  t.later(60);
+  const again = await t.next();
+  assert.deepEqual([again.action.type, again.action.stage, t.state().round.build], ['dispatch', 'build', 2]);
+  assert.deepEqual(t.state().build_before, before);
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.equal((await t.next()).action.checkpoint, 'needs_you');
+});
+
+test('a Build round started before 0.2.3 has no starting point: the branch is measured, as before', async () => {
+  const t = await sentBackByTests();
+  const old = t.state();
+  delete old.build_before;
+  writeState(t.dir, old);
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  assert.deepEqual([(await t.next()).action.type, t.state().stage], ['run', 'test']);
+});
+
+test('under Bypass permissions a round that changes nothing after failing tests parks the task', async () => {
+  const t = await sentBackByTests({ mode: 'bypassPermissions' });
+  t.report('build', 'backend', rep({ evidence: SAFE }));
+  const r = await t.next();
+  assert.deepEqual([r.action.type, r.action.status, t.state().asking.checkpoint, t.state().round.review], ['end', 'blocked', 'needs_you', 0]);
+  assert.ok(r.action.lines.some((l) => l.includes('Build changed nothing and the tests still fail')), r.action.lines.join(' | '));
 });

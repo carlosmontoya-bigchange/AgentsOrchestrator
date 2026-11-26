@@ -8,7 +8,7 @@ const { writeFileAtomic } = require('./store.js');
 const tasks = require('./taskstore.js');
 const { readWorkOrder, validateWorkOrder, withKeys, waves, readContext } = require('./workorder.js');
 const { parseReport, lineLimit, joinStageReport, stagePoints, unique } = require('./report.js');
-const { branchName, prepareRepo, measureRepo, judgeTrivial } = require('./gitwork.js');
+const { branchName, prepareRepo, measureRepo, fingerprintRepo, judgeTrivial } = require('./gitwork.js');
 const { isRunning } = require('./testrun.js');
 const { renderBrief, writeBrief } = require('./brief.js');
 const { CHOICES, decide, question } = require('./checkpoint.js');
@@ -354,6 +354,8 @@ function buildReady(c) {
   }
 
   state.round.build += 1;
+  // Where the round starts from: a round that leaves every repo as it found it changed nothing.
+  state.build_before = { round: state.round.build, repos: Object.fromEntries(order.repos.map((id) => [id, fingerprintRepo(repoOf(c, id), state.repos[id].base)])) };
   const entries = buildEntries(c, order);
   const inputs = { notes: state.notes, reports: state.fix ? state.fix.reports : [] };
   for (const entry of entries) {
@@ -381,7 +383,9 @@ function buildWaiting(c) {
   const judged = state.path === 'fast' ? judgeTrivial(measures, c.config.trivial, sensitive) : null;
   writeFileAtomic(tasks.stageFile(dir, 'build', 'diff', state.round.build, 'json'), JSON.stringify({ repos: measures, trivial: judged }, null, 2) + '\n');
 
-  const changed = measures.some((m) => m.files.length > 0);
+  // Measured for the round. A round started before 0.2.3 has no starting point: the branch is measured.
+  const before = state.build_before && state.build_before.round === state.round.build ? state.build_before.repos : null;
+  const changed = before ? measures.some((m) => fingerprintRepo(m, m.base) !== before[m.id]) : measures.some((m) => m.files.length > 0);
   const after = stageAfter(c, 'build');
   const exceptions = got.items.flatMap((i) => i.report.markers.exceptions.map((x) => ({ key: i.key, text: x })));
   const facts = [
@@ -394,6 +398,16 @@ function buildWaiting(c) {
   const report = stageReport(c, 'build', got.items, facts, [], [], changed ? `${title(after.stage)}.` : 'Nothing: Build changed no file.');
   // The notes stay: Build runs again with them and with the developer's answer.
   if (!changed) {
+    // Sent back by failing tests with nothing left to change: more rounds would repeat this one. Going on to
+    // Review with the failure on record is a real choice, as it is when the whole loop is used up.
+    if (state.fix && state.fix.from === 'test') {
+      const review = stageAfter(c, 'test');
+      return needsYou(c, 'Build changed nothing and the tests still fail.', {
+        headline: 'Build changed nothing and the tests still fail', questions: report.questions, notes: report.notes, report: report.file,
+        then: review, next: `${title(review.stage)} starts, with the failing tests on record.`,
+        change: { stage: 'build', step: 'ready', fix: state.fix, reset: ['test'] },
+      });
+    }
     return needsYou(c, 'Build changed no file.', {
       headline: 'Build changed no file', questions: report.questions, notes: report.notes, report: report.file, change: { stage: 'build', step: 'ready', reset: [] },
     });
