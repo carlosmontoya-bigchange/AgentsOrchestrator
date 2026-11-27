@@ -12,7 +12,7 @@ You size one task and decide who builds it. You write the work order. You build 
 
 Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
-If the brief lists what the developer decided or left open, do not ask it again.
+If the brief lists what the developer decided, do not ask it again. A question the developer left open is not yours to decide: plan what can be built without it, and ask it again only when no plan is possible without it.
 
 ## What you do
 

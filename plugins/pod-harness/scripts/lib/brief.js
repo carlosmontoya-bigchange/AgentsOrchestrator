@@ -119,13 +119,18 @@ const list = (title, items) => (items.length ? [title, ...items.map((i) => `- ${
 
 // What the developer decided at a question holds for the rest of the task, so every later brief names it.
 // A task started before 0.2.2 has no list.
-function decided(state) {
+// A question left open is nobody's to decide but the developer's. An agent works around it. Only the Orchestrator,
+// whose plan can depend on the answer, may put it to the developer again.
+const LEFT_OPEN = 'The developer saw these questions and chose to go on without answering. Do not ask them again and do not decide them yourself. Do what your job allows without them, and say under Notes what you left:';
+const LEFT_OPEN_PLAN = 'The developer saw these questions and chose to go on without answering. Do not decide them yourself. Plan what can be built without them. If no plan is possible without an answer, put the question in the work order again:';
+
+function decided(state, kind) {
   const all = records(state.decisions);
   const answers = all.filter((d) => d.kind === 'answer').map((d) => `${tick(d.note)}, the answer to ${tick(d.question)}`);
   const open = unique(all.filter((d) => d.kind === 'left-open').flatMap((d) => records(d.questions)));
   return [
     ...list('The developer answered these. Read them. They are decided. Do not ask them again:', answers),
-    ...list('The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:', open),
+    ...list(kind === 'orchestrator' ? LEFT_OPEN_PLAN : LEFT_OPEN, open),
   ];
 }
 
@@ -202,7 +207,7 @@ function taskSection(kind, ctx, stage, key) {
     out.push(...list('The reports of the stages before you:', records(inputs.reports).map(tick)), ...notes, 'List under Found what a person must test by hand.');
   }
 
-  out.push(...decided(state), '', `Write your report to ${tick(stageFile(dir, stage, key, round, 'md'))}.`);
+  out.push(...decided(state, kind), '', `Write your report to ${tick(stageFile(dir, stage, key, round, 'md'))}.`);
   return out;
 }
 

@@ -304,12 +304,17 @@ test('every brief but the Explorer\'s names what the developer decided, below "#
     const text = renderBrief(kind, f.ctx({ state: { ...f.state, decisions }, ...extra }));
     const task = section(text, 'Task');
     assert.ok(task.includes(`The developer answered these. Read them. They are decided. Do not ask them again:\n- \`${note}\`, the answer to \`${asked}\`\n`), kind);
-    assert.ok(task.includes('The developer saw these questions and chose to go on. Do not ask them again. Work without an answer and say under Notes what you assumed:\n- Which wording do you want?\n- Should the old text stay?\n\n'), kind);
+    // A question left open is nobody's to decide but the developer's. Only the Orchestrator may put it again.
+    const open = kind === 'orchestrator'
+      ? 'The developer saw these questions and chose to go on without answering. Do not decide them yourself. Plan what can be built without them. If no plan is possible without an answer, put the question in the work order again:'
+      : 'The developer saw these questions and chose to go on without answering. Do not ask them again and do not decide them yourself. Do what your job allows without them, and say under Notes what you left:';
+    assert.ok(task.includes(`${open}\n- Which wording do you want?\n- Should the old text stay?\n\n`), kind);
     assert.equal(above(text).includes('Do not ask them again'), false, kind);
     assert.equal(text.includes('payment table'), false, `${kind}: a question the developer never saw is not called seen`);
     assert.match(task.trimEnd(), /\n\nWrite your report to `[^`]+\.md`\.$/, `${kind}: the report path stays last, on its own line`);
     assert.equal(renderBrief(kind, f.ctx(extra)).includes('Do not ask them again'), false, `${kind}: nothing decided, no block`);
     assert.equal(renderBrief(kind, f.ctx({ state: old, ...extra })).includes('Do not ask them again'), false, `${kind}: a task without the list`);
   }
-  assert.equal(renderBrief('explorer', f.ctx({ state: { ...f.state, decisions } })).includes('Do not ask them again'), false);
+  const explorer = renderBrief('explorer', f.ctx({ state: { ...f.state, decisions } }));
+  assert.equal(explorer.includes('Do not ask them again') || explorer.includes('chose to go on'), false);
 });

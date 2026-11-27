@@ -8,7 +8,7 @@ const { writeFileAtomic } = require('./store.js');
 const tasks = require('./taskstore.js');
 const { readWorkOrder, validateWorkOrder, withKeys, waves, readContext } = require('./workorder.js');
 const { parseReport, lineLimit, joinStageReport, stagePoints, unique } = require('./report.js');
-const { branchName, prepareRepo, measureRepo, judgeTrivial } = require('./gitwork.js');
+const { branchName, prepareRepo, measureRepo, fingerprintRepo, judgeTrivial } = require('./gitwork.js');
 const { isRunning } = require('./testrun.js');
 const { renderBrief, writeBrief } = require('./brief.js');
 const { CHOICES, decide, question } = require('./checkpoint.js');
@@ -312,6 +312,9 @@ function understandWaiting(c) {
     });
   }
 
+  // A plan made because the tests kept failing replaces one that did not work: the developer sees it, in Auto too.
+  const evidence = state.fix;
+  const replanned = Boolean(evidence) && evidence.from === 'test';
   state.notes = [];
   state.fix = null;
   const agents = withKeys(order).map((a) => `${a.key} in ${repoOf(c, a.repo).name}`).join(', ');
@@ -322,9 +325,11 @@ function understandWaiting(c) {
   const report = stageReport(c, 'understand', entries, facts, asks, [], `Build: ${agents}.`);
   const grew = old !== null && RANK.indexOf(order.size) > RANK.indexOf(old);
   return raise(c, {
-    checkpoint: grew ? 'task_grew' : 'work_order', headline: grew ? `from ${old} to ${order.size}` : `size ${order.size}`, ask: 'Start Build?', detail: order.summary,
+    checkpoint: grew || replanned ? 'task_grew' : 'work_order',
+    headline: replanned ? 'a new plan after the tests kept failing' : grew ? `from ${old} to ${order.size}` : `size ${order.size}`, ask: 'Start Build?', detail: order.summary,
     report: report.file, affected: affects(c, order.repos), next: `Build starts: ${agents}.`, questions: shown(order.questions, report, asks), notes: report.notes,
-    then: { stage: 'build', step: 'ready' }, change: { stage: 'understand', step: 'ready' },
+    // A change to such a plan is planned with the failing tests before it, and its plan is shown too.
+    then: { stage: 'build', step: 'ready' }, change: { stage: 'understand', step: 'ready', ...(replanned ? { fix: evidence } : {}) },
   });
 }
 
@@ -354,6 +359,8 @@ function buildReady(c) {
   }
 
   state.round.build += 1;
+  // Where the round starts from: a round that leaves every repo as it found it changed nothing.
+  state.build_before = Object.fromEntries(order.repos.map((id) => [id, fingerprintRepo(repoOf(c, id), state.repos[id].base)]));
   const entries = buildEntries(c, order);
   const inputs = { notes: state.notes, reports: state.fix ? state.fix.reports : [] };
   for (const entry of entries) {
@@ -384,6 +391,12 @@ function buildWaiting(c) {
   const changed = measures.some((m) => m.files.length > 0);
   const after = stageAfter(c, 'build');
   const exceptions = got.items.flatMap((i) => i.report.markers.exceptions.map((x) => ({ key: i.key, text: x })));
+  // Sent back by failing tests, the round left every repo as it found it: more rounds would repeat this one.
+  // Any other round with nothing to change goes on, since the branch holds the work. A policy exception is
+  // put to the developer first. A round started before 0.2.3 has no starting point and is not judged.
+  const before = state.build_before;
+  const stuck = changed && exceptions.length === 0 && Boolean(before) && Boolean(state.fix) && state.fix.from === 'test'
+    && measures.every((m) => fingerprintRepo(m, m.base) === before[m.id]);
   const facts = [
     ...measures.map((m) => `${m.name}: ${count(m.product_files, 'product file')}, ${count(m.product_lines, 'product line')} and ${count(m.test_lines, 'test line')} changed on ${m.branch}.`),
     `Sensitive change: ${sensitive}.`,
@@ -391,11 +404,23 @@ function buildWaiting(c) {
     ...(judged ? (judged.trivial ? ['Measured as trivial.'] : judged.reasons.map((r) => `Not trivial: ${r}`)) : []),
     ...exceptions.map((x) => `Not done, a policy needs your yes: ${x.key}: ${x.text}`),
   ];
-  const report = stageReport(c, 'build', got.items, facts, [], [], changed ? `${title(after.stage)}.` : 'Nothing: Build changed no file.');
+  const report = stageReport(c, 'build', got.items, facts, [], [], !changed ? 'Nothing: Build changed no file.' : stuck ? 'Nothing: this round changed no file and the tests still fail.' : `${title(after.stage)}.`);
   // The notes stay: Build runs again with them and with the developer's answer.
   if (!changed) {
     return needsYou(c, 'Build changed no file.', {
       headline: 'Build changed no file', questions: report.questions, notes: report.notes, report: report.file, change: { stage: 'build', step: 'ready', reset: [] },
+    });
+  }
+  if (stuck) {
+    // Going on to Review with the failure on record is a real choice, as it is when the whole loop is used up.
+    // The failure goes with the answer that sends Build back, not with the one that passes it over.
+    const evidence = state.fix;
+    state.fix = null;
+    const review = stageAfter(c, 'test');
+    return needsYou(c, 'Build changed nothing and the tests still fail.', {
+      headline: 'Build changed nothing and the tests still fail', questions: report.questions, notes: report.notes, report: report.file,
+      then: review, next: `${title(review.stage)} starts, with the failing tests on record.`,
+      change: { stage: 'build', step: 'ready', fix: evidence, reset: ['test'] },
     });
   }
   state.notes = [];

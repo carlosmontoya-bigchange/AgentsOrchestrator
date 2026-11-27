@@ -79,10 +79,12 @@ test('a Build agent asks instead of guessing, and the Orchestrator may leave the
   assert.ok(agent('orchestrator').body.includes('If nothing can be built until a person decides something, write the work order with the questions and an empty `agents` list. Do not guess.'));
 });
 
-test('every agent that gets the developer\'s decisions is told not to ask them again', () => {
-  for (const name of names.filter((n) => n !== 'explorer')) {
-    assert.ok(agent(name).body.includes('If the brief lists what the developer decided or left open, do not ask it again.'), name);
+test('every agent that gets the developer\'s decisions is told not to ask them again, and not to decide what was left open', () => {
+  for (const name of names.filter((n) => n !== 'explorer' && n !== 'orchestrator')) {
+    assert.ok(agent(name).body.includes('If the brief lists what the developer decided or left open, do not ask it again. A question left open is not yours to decide: do what your job allows without it.'), name);
   }
+  // The Orchestrator's plan can depend on the answer: it may ask again, and only then.
+  assert.ok(agent('orchestrator').body.includes('If the brief lists what the developer decided, do not ask it again. A question the developer left open is not yours to decide: plan what can be built without it, and ask it again only when no plan is possible without it.'));
 });
 
 test('each agent names its marker line', () => {

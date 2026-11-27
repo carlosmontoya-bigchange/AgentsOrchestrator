@@ -1,6 +1,7 @@
 'use strict';
 // Git for the Build stage: put a repo on its task branch, and measure what changed there.
 // This file only switches branches and reads. The developer's own work is never touched or thrown away.
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { ConfigError } = require('./configfile.js');
@@ -95,6 +96,28 @@ function measureRepo(repo, base, never, opts = {}) {
   };
 }
 
+// What a Build round is compared by: every file that differs from the base, tracked or new, by name and
+// content. The same tree gives the same value, staged or not, so a round that leaves the tree as it found it is
+// seen to have changed nothing. Git only lists the names: no patch is made, so the developer's own diff tool is
+// never started.
+function fingerprintRepo(repo, base, opts = {}) {
+  const run = opts.run || runner.run;
+  const names = (...args) => {
+    const r = run('git', ['-C', repo.path, ...args], { timeoutMs: 120000 });
+    if (r.code !== 0) throw new ConfigError('git-failed', `git ${args[0]} failed in ${repo.path}: ${r.stderr.trim().slice(0, 300)}`);
+    return r.stdout.split('\0').filter(Boolean);
+  };
+  const files = new Set([...names('diff', '--name-only', '--no-renames', '-z', base), ...names('ls-files', '--others', '--exclude-standard', '-z')]);
+  const hash = crypto.createHash('sha256');
+  for (const file of [...files].sort()) {
+    hash.update(`\0${file}\0`);
+    try {
+      hash.update(fs.readFileSync(path.join(repo.path, file)));
+    } catch { /* deleted, or a nested repo listed as a folder: the name alone counts */ }
+  }
+  return hash.digest('hex');
+}
+
 // The measurement decides whether a task was trivial. Each failed condition is one reason, with its numbers.
 function judgeTrivial(measures, trivial, sensitive) {
   const total = (key) => measures.reduce((n, m) => n + m[key], 0);
@@ -112,4 +135,4 @@ function judgeTrivial(measures, trivial, sensitive) {
   return { trivial: reasons.length === 0, reasons };
 }
 
-module.exports = { branchName, prepareRepo, classify, measureRepo, judgeTrivial };
+module.exports = { branchName, prepareRepo, classify, measureRepo, fingerprintRepo, judgeTrivial };

@@ -11,7 +11,7 @@ You build the server-side part of one task in one repo: the change and its autom
 
 Your prompt gives you the path of a brief. Read it first. It is your whole task.
 
-If the brief lists what the developer decided or left open, do not ask it again.
+If the brief lists what the developer decided or left open, do not ask it again. A question left open is not yours to decide: do what your job allows without it.
 
 ## What you do
 
